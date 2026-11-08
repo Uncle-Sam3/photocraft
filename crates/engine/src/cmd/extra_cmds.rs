@@ -581,7 +581,12 @@ fn ungroup(s: &mut Session, p: &Value) -> Result<Value> {
         let LayerContent::Group(group) = &g.content else {
             return Err(EngineError::Other("the active layer is not a group".into()));
         };
-        let children = group.children.clone();
+        let opacity = g.opacity;
+        let visible = g.visible;
+        let blend = g.blend;
+        let vector_mask = g.vector_mask.clone();
+        let mask = g.mask.clone();
+        let children: Vec<Layer> = group.children.iter().cloned().map(|child| release_child(child, opacity, visible, blend, &vector_mask, &mask)).collect();
         let (&idx, parent) = path.split_last().ok_or(EngineError::NoLayer(id))?;
         // Ungrouping the only root layer when it is an empty group would leave the document
         // with no layers at all; `layer.delete` refuses to drop the last layer, so refuse here
@@ -599,6 +604,32 @@ fn ungroup(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(())
     })?;
     Ok(Value::Null)
+}
+
+/// One level of a group. Opacity and visibility are folded into each child so a translucent
+/// SVG group does not jump to full strength. A non-pass-through blend is copied onto children
+/// that were normal. Masks are copied only onto children that do not already have one.
+/// Subpaths, including holes, stay on their own shape layer.
+fn release_child(
+    mut child: Layer,
+    opacity: f32,
+    visible: bool,
+    blend: photocraft_doc::BlendMode,
+    vector_mask: &Option<photocraft_doc::VectorMask>,
+    mask: &Option<LayerMask>,
+) -> Layer {
+    child.opacity = (child.opacity * opacity).clamp(0.0, 1.0);
+    child.visible = child.visible && visible;
+    if blend != photocraft_doc::BlendMode::PassThrough && matches!(child.blend, photocraft_doc::BlendMode::Normal | photocraft_doc::BlendMode::PassThrough) {
+        child.blend = blend;
+    }
+    if child.vector_mask.is_none() {
+        child.vector_mask = vector_mask.clone();
+    }
+    if child.mask.is_none() {
+        child.mask = mask.clone();
+    }
+    child
 }
 
 fn set_visible(s: &mut Session, p: &Value, visible: bool) -> Result<Value> {

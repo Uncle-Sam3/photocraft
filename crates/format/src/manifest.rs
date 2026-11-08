@@ -229,6 +229,64 @@ pub struct LayerM {
     /// The layer's own XMP packet (missing in older files = none).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub xmp: Option<String>,
+    /// Editable 3D extrusion. Absent in files written before it existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extrusion: Option<ExtrusionM>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExtrusionM {
+    pub path: Path,
+    pub origin: photocraft_doc::ExtrusionOrigin,
+    #[serde(default)]
+    pub live: bool,
+    pub depth: f32,
+    pub front_bevel: photocraft_doc::ExtrusionBevel,
+    pub back_bevel: photocraft_doc::ExtrusionBevel,
+    pub materials: ExtrusionMaterialsM,
+    pub pose: photocraft_doc::ExtrusionPose,
+    pub camera: photocraft_doc::ExtrusionCamera,
+    #[serde(default)]
+    pub lights: Vec<photocraft_doc::ExtrusionLight>,
+    pub ambient: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache: Option<SurfaceM>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExtrusionMaterialsM {
+    pub front: FaceMaterialM,
+    pub front_bevel: FaceMaterialM,
+    pub side: FaceMaterialM,
+    pub back_bevel: FaceMaterialM,
+    pub back: FaceMaterialM,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FaceMaterialM {
+    pub paint: photocraft_doc::MaterialPaint,
+    #[serde(default = "white4")]
+    pub diffuse: [f32; 4],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texture: Option<SurfaceM>,
+    #[serde(default)]
+    pub tex_w: u32,
+    #[serde(default)]
+    pub tex_h: u32,
+    #[serde(default)]
+    pub uv: photocraft_doc::UvMap,
+    #[serde(default)]
+    pub gradient: photocraft_doc::FaceGradient,
+    #[serde(default = "some_shine")]
+    pub shininess: f32,
+}
+
+fn white4() -> [f32; 4] {
+    [1.0, 1.0, 1.0, 1.0]
+}
+
+fn some_shine() -> f32 {
+    0.15
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

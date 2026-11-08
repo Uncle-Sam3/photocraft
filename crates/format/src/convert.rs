@@ -12,8 +12,8 @@ use photocraft_geom::{TILE_SIZE, TileCoord};
 use photocraft_raster::{Surface, Tile, decode_pixel, encode_pixel};
 
 use crate::manifest::{
-    ChannelM, CompAppearanceM, CompStateM, ContentM, DocM, EffectsM, FillCacheM, Hash, LayerCompM, LayerM, MaskM, MetadataM, NamedPathM, PatternM,
-    SmartSourceM, SurfaceM, TileRef, VectorPreviewM,
+    ChannelM, CompAppearanceM, CompStateM, ContentM, DocM, EffectsM, ExtrusionM, ExtrusionMaterialsM, FaceMaterialM, FillCacheM, Hash, LayerCompM, LayerM,
+    MaskM, MetadataM, NamedPathM, PatternM, SmartSourceM, SurfaceM, TileRef, VectorPreviewM,
 };
 use crate::{FormatError, Result};
 
@@ -229,6 +229,47 @@ fn layer_m(l: &Layer, sink: &mut dyn Sink) -> LayerM {
         advanced: l.advanced,
         video: l.video.as_ref().map(|v| video_m(v, sink)),
         xmp: l.xmp.as_deref().map(str::to_string),
+        extrusion: l.extrusion.as_deref().map(|e| extrusion_m(e, sink)),
+    }
+}
+
+fn face_m(m: &photocraft_doc::FaceMaterial, sink: &mut dyn Sink) -> FaceMaterialM {
+    FaceMaterialM {
+        paint: m.paint,
+        diffuse: m.diffuse,
+        texture: m.texture.as_ref().map(|s| surface_m(s, sink)),
+        tex_w: m.tex_w,
+        tex_h: m.tex_h,
+        uv: m.uv,
+        gradient: m.gradient.clone(),
+        shininess: m.shininess,
+    }
+}
+
+fn materials_m(m: &photocraft_doc::ExtrusionMaterials, sink: &mut dyn Sink) -> ExtrusionMaterialsM {
+    ExtrusionMaterialsM {
+        front: face_m(&m.front, sink),
+        front_bevel: face_m(&m.front_bevel, sink),
+        side: face_m(&m.side, sink),
+        back_bevel: face_m(&m.back_bevel, sink),
+        back: face_m(&m.back, sink),
+    }
+}
+
+fn extrusion_m(e: &photocraft_doc::Extrusion3d, sink: &mut dyn Sink) -> ExtrusionM {
+    ExtrusionM {
+        path: e.path.clone(),
+        origin: e.origin,
+        live: e.live,
+        depth: e.depth,
+        front_bevel: e.front_bevel,
+        back_bevel: e.back_bevel,
+        materials: materials_m(&e.materials, sink),
+        pose: e.pose,
+        camera: e.camera,
+        lights: e.lights.clone(),
+        ambient: e.ambient,
+        cache: e.cache.as_ref().map(|s| surface_m(s, sink)),
     }
 }
 
@@ -591,7 +632,45 @@ impl Loader<'_> {
             advanced: m.advanced,
             video: m.video.as_ref().map(|v| self.video(v)).transpose()?,
             xmp: m.xmp.as_deref().map(Arc::from),
+            extrusion: m.extrusion.as_ref().map(|e| self.extrusion(e)).transpose()?,
         })
+    }
+
+    fn face(&mut self, m: &FaceMaterialM) -> Result<photocraft_doc::FaceMaterial> {
+        Ok(photocraft_doc::FaceMaterial {
+            paint: m.paint,
+            diffuse: m.diffuse,
+            texture: self.opt_surface(&m.texture)?,
+            tex_w: m.tex_w,
+            tex_h: m.tex_h,
+            uv: m.uv,
+            gradient: m.gradient.clone(),
+            shininess: m.shininess,
+        })
+    }
+
+    fn extrusion(&mut self, m: &ExtrusionM) -> Result<Box<photocraft_doc::Extrusion3d>> {
+        let materials = photocraft_doc::ExtrusionMaterials {
+            front: self.face(&m.materials.front)?,
+            front_bevel: self.face(&m.materials.front_bevel)?,
+            side: self.face(&m.materials.side)?,
+            back_bevel: self.face(&m.materials.back_bevel)?,
+            back: self.face(&m.materials.back)?,
+        };
+        Ok(Box::new(photocraft_doc::Extrusion3d {
+            path: m.path.clone(),
+            origin: m.origin,
+            live: m.live,
+            depth: m.depth,
+            front_bevel: m.front_bevel,
+            back_bevel: m.back_bevel,
+            materials,
+            pose: m.pose,
+            camera: m.camera,
+            lights: m.lights.clone(),
+            ambient: m.ambient,
+            cache: self.opt_surface(&m.cache)?,
+        }))
     }
 
     pub(crate) fn document(&mut self, m: &DocM) -> Result<Document> {

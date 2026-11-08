@@ -406,6 +406,9 @@ pub(crate) fn with_shape<R>(s: &mut Session, id: LayerId, label: &str, f: impl F
             refresh_shape(&snapshot, &mut sh);
         }
         l.content = LayerContent::Shape(sh);
+        if r.is_ok() && l.extrusion.is_some() {
+            crate::cmd::extrude_cmds::sync_layer(doc, id);
+        }
         r
     })
 }

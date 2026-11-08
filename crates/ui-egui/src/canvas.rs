@@ -23,6 +23,7 @@ pub mod channel_view;
 mod cursors;
 mod display;
 mod drag;
+mod extrude_gizmo;
 mod filter_preview;
 mod gesture;
 pub mod gpu_canvas;
@@ -873,6 +874,9 @@ fn handle_primary_canvas_input(app: &mut PhotocraftApp, ui: &mut egui::Ui, view:
     let idx = input.idx;
     let under_dialog = input.under_dialog;
     let mods = ui.input(|i| i.modifiers);
+    if extrude_gizmo::handle(app, ui, xf) {
+        return;
+    }
     // An ⌥-click the window manager took never arrives; say so (alt_grab.rs).
     crate::alt_grab::watch(app, ctx, egui::Id::unique(("pc-alt-grab", idx)), rect, tool, !under_dialog);
     // Tools follow the left button; the right one opens the Brush Preset picker or erases
@@ -1409,6 +1413,7 @@ fn paint_primary_overlays(app: &mut PhotocraftApp, ui: &mut egui::Ui, view: &mut
     if border == photocraft_engine::prefs::CanvasBorder::Line && !beyond && !crate::crop_shield::hides_outside(app) {
         painter.rect_stroke(edge_rect, 0.0, Stroke::new(1.0, Color32::from_gray(20)), egui::StrokeKind::Outside);
     }
+    extrude_gizmo::draw(app, painter, xf);
     crate::type_tool::draw_overlay(app, painter, xf);
     crate::transform_tool::draw_overlay(app, painter, xf);
     crate::cam_transform::draw(app, painter, xf);

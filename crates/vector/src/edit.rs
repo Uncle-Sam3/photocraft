@@ -6,7 +6,7 @@
 //! Knots are addressed as `[subpath, knot]`. Every edit validates its indices and returns an
 //! error message instead of panicking.
 
-use photocraft_doc::{Knot, Path};
+use photocraft_doc::{Knot, Path, Subpath};
 use photocraft_geom::Point;
 
 /// One of a knot's two direction handles.
@@ -257,6 +257,171 @@ pub fn delete_anchor(path: &mut Path, [s, k]: [usize; 2]) -> Result<bool, String
     }
     sp.knots.remove(k);
     Ok(false)
+}
+
+/// Close an open subpath. A closed subpath stays closed. Two points cannot close into an area.
+pub fn close_subpath(path: &mut Path, s: usize) -> Result<(), String> {
+    let sp = path.subpaths.get_mut(s).ok_or_else(|| format!("no subpath {s}"))?;
+    if sp.knots.len() < 3 {
+        return Err("closing a path needs at least three anchor points".into());
+    }
+    sp.closed = true;
+    Ok(())
+}
+
+/// Break the outline at a node. A closed subpath opens with that node first. An open subpath
+/// splits into two open subpaths that both keep the node, so neither side loses its end.
+pub fn break_anchor(path: &mut Path, [s, k]: [usize; 2]) -> Result<(), String> {
+    let sp = path.subpaths.get_mut(s).ok_or_else(|| format!("no subpath {s}"))?;
+    if k >= sp.knots.len() {
+        return Err(format!("no anchor {k}"));
+    }
+    if sp.closed {
+        sp.knots.rotate_left(k);
+        sp.closed = false;
+        return Ok(());
+    }
+    if k == 0 || k + 1 == sp.knots.len() {
+        return Err("the node is already an end of the path".into());
+    }
+    let shared = sp.knots.get(k).cloned().ok_or_else(|| format!("no anchor {k}"))?;
+    let mut right = sp.knots.split_off(k + 1);
+    right.insert(0, shared);
+    let op = sp.op;
+    path.subpaths.insert(s + 1, Subpath { closed: false, knots: right, op });
+    Ok(())
+}
+
+/// Join two open subpaths at their nearest ends. Compound holes are other subpaths and are left
+/// alone. Closed subpaths are refused so a hole is not opened by accident.
+pub fn join_subpaths(path: &mut Path, a: usize, b: usize) -> Result<(), String> {
+    if a == b {
+        return Err("join needs two different subpaths".into());
+    }
+    if a.max(b) >= path.subpaths.len() {
+        return Err("no such subpath".into());
+    }
+    let (left, right) = (a.min(b), a.max(b));
+    let second = path.subpaths.remove(right);
+    let first = path.subpaths.get_mut(left).ok_or_else(|| "no such subpath".to_string())?;
+    if first.closed || second.closed {
+        path.subpaths.insert(right, second);
+        return Err("closed subpaths are not joined; break them first. A compound hole stays one shape".into());
+    }
+    let mut knots = std::mem::take(&mut first.knots);
+    let mut extra = second.knots;
+    orient_join(&mut knots, &mut extra);
+    knots.extend(extra);
+    first.knots = knots;
+    Ok(())
+}
+
+fn orient_join(a: &mut [Knot], b: &mut [Knot]) {
+    let Some(a0) = a.first().map(|k| k.anchor) else { return };
+    let Some(a1) = a.last().map(|k| k.anchor) else { return };
+    let Some(b0) = b.first().map(|k| k.anchor) else { return };
+    let Some(b1) = b.last().map(|k| k.anchor) else { return };
+    let dist = |p: Point, q: Point| (p.x - q.x).hypot(p.y - q.y);
+    let ends = [(dist(a1, b0), false, false), (dist(a1, b1), false, true), (dist(a0, b0), true, false), (dist(a0, b1), true, true)];
+    let Some((_, rev_a, rev_b)) = ends.iter().min_by(|x, y| x.0.total_cmp(&y.0)) else { return };
+    if *rev_a {
+        a.reverse();
+    }
+    if *rev_b {
+        b.reverse();
+    }
+}
+
+/// Make the segment that leaves knot `k` a straight line.
+pub fn segment_to_line(path: &mut Path, at: [usize; 2]) -> Result<(), String> {
+    let next = neighbour(path, at, 1)?;
+    let anchor = knot_at(path, at)?.anchor;
+    let end = knot_at(path, next)?.anchor;
+    knot_mut(path, at)?.out_ctrl = anchor;
+    knot_mut(path, next)?.in_ctrl = end;
+    Ok(())
+}
+
+/// Give a straight segment two handles so it can bend. A segment that already curves is unchanged.
+pub fn segment_to_curve(path: &mut Path, at: [usize; 2]) -> Result<(), String> {
+    let next = neighbour(path, at, 1)?;
+    let start = knot_at(path, at)?;
+    let end = knot_at(path, next)?;
+    if start.out_ctrl != start.anchor || end.in_ctrl != end.anchor {
+        return Ok(());
+    }
+    let (a, b) = (start.anchor, end.anchor);
+    let out = Point::new(a.x + (b.x - a.x) / 3.0, a.y + (b.y - a.y) / 3.0);
+    let inn = Point::new(a.x + (b.x - a.x) * 2.0 / 3.0, a.y + (b.y - a.y) * 2.0 / 3.0);
+    knot_mut(path, at)?.out_ctrl = out;
+    knot_mut(path, next)?.in_ctrl = inn;
+    Ok(())
+}
+
+fn knot_at(path: &Path, [s, k]: [usize; 2]) -> Result<Knot, String> {
+    path.subpaths.get(s).and_then(|sp| sp.knots.get(k)).copied().ok_or_else(|| format!("no anchor {k} on subpath {s}"))
+}
+
+/// `cusp` keeps both handles and breaks the smooth link. `smooth` makes them collinear.
+/// `symmetric` also gives them the same length.
+pub fn set_node_kind(path: &mut Path, at: [usize; 2], kind: &str) -> Result<(), String> {
+    let current = knot_at(path, at)?;
+    match kind {
+        "cusp" | "corner" => {
+            knot_mut(path, at)?.smooth = false;
+            Ok(())
+        }
+        "smooth" | "symmetric" => {
+            let (inn, out) = aligned_handles(current.anchor, current.in_ctrl, current.out_ctrl, kind == "symmetric");
+            let knot = knot_mut(path, at)?;
+            knot.smooth = true;
+            knot.in_ctrl = inn;
+            knot.out_ctrl = out;
+            Ok(())
+        }
+        _ => Err("node kind must be cusp, smooth or symmetric".into()),
+    }
+}
+
+fn neighbour(path: &Path, [s, k]: [usize; 2], step: isize) -> Result<[usize; 2], String> {
+    let sp = path.subpaths.get(s).ok_or_else(|| format!("no subpath {s}"))?;
+    let n = sp.knots.len();
+    if n < 2 || k >= n {
+        return Err(format!("no anchor {k}"));
+    }
+    let next = if sp.closed {
+        (k as isize + step).rem_euclid(n as isize) as usize
+    } else {
+        let i = k as isize + step;
+        if i < 0 || i >= n as isize {
+            return Err("the segment does not exist".into());
+        }
+        i as usize
+    };
+    Ok([s, next])
+}
+
+fn aligned_handles(anchor: Point, incoming: Point, outgoing: Point, symmetric: bool) -> (Point, Point) {
+    let vin = Point::new(incoming.x - anchor.x, incoming.y - anchor.y);
+    let vout = Point::new(outgoing.x - anchor.x, outgoing.y - anchor.y);
+    let lin = vin.x.hypot(vin.y);
+    let lout = vout.x.hypot(vout.y);
+    if lin < 1e-6 && lout < 1e-6 {
+        let handle = Point::new(anchor.x + 12.0, anchor.y);
+        return (Point::new(anchor.x - 12.0, anchor.y), handle);
+    }
+    let (dir, len_in, len_out) = if lin >= lout {
+        (Point::new(vin.x / lin.max(1e-6), vin.y / lin.max(1e-6)), lin, if lout < 1e-6 { lin } else { lout })
+    } else {
+        (Point::new(-vout.x / lout, -vout.y / lout), if lin < 1e-6 { lout } else { lin }, lout)
+    };
+    let (len_in, len_out) = if symmetric {
+        let n = len_in.max(len_out);
+        (n, n)
+    } else {
+        (len_in, len_out)
+    };
+    (Point::new(anchor.x + dir.x * len_in, anchor.y + dir.y * len_in), Point::new(anchor.x - dir.x * len_out, anchor.y - dir.y * len_out))
 }
 
 /// Every anchor of subpath `s` (⌥-click with Direct Selection selects the whole subpath).
@@ -624,5 +789,30 @@ mod tests {
         assert_eq!(anchors_in(&p, [110.0, -5.0, 40.0, 5.0]), vec![[0, 1]]);
         assert_eq!(subpath_anchors(&p, 0), vec![[0, 0], [0, 1], [0, 2]]);
         assert!(subpath_anchors(&p, 4).is_empty());
+    }
+
+    #[test]
+    fn close_break_join_and_node_kinds_keep_a_compound_hole() {
+        let mut hole = Path::new(vec![
+            Subpath::polygon(&[(0.0, 0.0), (40.0, 0.0), (40.0, 30.0), (0.0, 30.0)]),
+            Subpath::polygon(&[(10.0, 10.0), (20.0, 10.0), (20.0, 20.0), (10.0, 20.0)]).with_op(photocraft_doc::PathOp::Subtract),
+        ]);
+        assert!(join_subpaths(&mut hole, 0, 1).is_err(), "a closed hole is not joined away");
+        assert_eq!(hole.subpaths.len(), 2);
+        let mut open = Path::new(vec![Subpath::polyline(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]), Subpath::polyline(&[(30.0, 0.0), (40.0, 0.0)])]);
+        close_subpath(&mut open, 0).unwrap();
+        assert!(open.subpaths[0].closed);
+        break_anchor(&mut open, [0, 1]).unwrap();
+        assert!(!open.subpaths[0].closed);
+        join_subpaths(&mut open, 0, 1).unwrap();
+        assert_eq!(open.subpaths.len(), 1);
+        segment_to_curve(&mut open, [0, 0]).unwrap();
+        assert_ne!(open.subpaths[0].knots[0].out_ctrl, open.subpaths[0].knots[0].anchor);
+        segment_to_line(&mut open, [0, 0]).unwrap();
+        assert_eq!(open.subpaths[0].knots[0].out_ctrl, open.subpaths[0].knots[0].anchor);
+        set_node_kind(&mut open, [0, 1], "symmetric").unwrap();
+        assert!(open.subpaths[0].knots[1].smooth);
+        set_node_kind(&mut open, [0, 1], "cusp").unwrap();
+        assert!(!open.subpaths[0].knots[1].smooth);
     }
 }

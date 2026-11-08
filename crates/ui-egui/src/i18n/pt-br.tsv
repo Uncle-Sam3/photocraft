@@ -4541,3 +4541,36 @@ smartSvg	AI/PDF/EPS contents will be edited as SVG. Saving replaces the embedded
 	Auto-size Canvas	Ajustar tamanho da tela automaticamente
 	Keep Relative Position During Layer Reordering	Manter a posição relativa ao reordenar camadas
 	Shrinkwrap Canvas on Save	Reduzir a tela ao conteúdo ao salvar
+	3D Extrusion	Extrusão 3D
+	Extrusion depth	Profundidade da extrusão
+	Front bevel width	Largura do chanfro frontal
+	Front bevel depth	Profundidade do chanfro frontal
+	Bevel roundness	Arredondamento do chanfro
+	Back bevel width	Largura do chanfro traseiro
+	Rotate Y	Girar Y
+	Rotate X	Girar X
+	Camera yaw	Giro da câmera
+	Camera pitch	Inclinação da câmera
+	Orthographic	Ortográfica
+	Remove extrusion	Remover extrusão
+	Surface	Superfície
+	Flat colour	Cor chapada
+	Gradient along the surface	Degradê ao longo da superfície
+	Side image	Imagem da lateral
+	Use image on side	Usar imagem na lateral
+	Front face	Face da frente
+	Front bevel	Chanfro frontal
+	Side wall	Lateral
+	Back bevel	Chanfro traseiro
+	Back face	Face de trás
+	New 3D Extrusion from Layer	Nova extrusão 3D da camada
+	New 3D Extrusion from Work Path	Nova extrusão 3D do demarcador de trabalho
+	New 3D Extrusion from Selection	Nova extrusão 3D da seleção
+	Refresh 3D Extrusion	Atualizar extrusão 3D
+	Remove 3D Extrusion	Remover extrusão 3D
+	Close Path	Fechar demarcador
+	Break Path	Quebrar demarcador
+	Join Paths	Juntar demarcadores
+	Straight Segment	Segmento reto
+	Curve Segment	Segmento curvo
+	Set Node Type	Tipo do nó

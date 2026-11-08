@@ -47,6 +47,14 @@ fn surface_damage(a: &photocraft_raster::Surface, b: &photocraft_raster::Surface
 }
 
 /// Whether two surfaces hold identical pixels (see [`surface_damage`]).
+fn extrusion_equal(a: &Option<Box<photocraft_doc::Extrusion3d>>, b: &Option<Box<photocraft_doc::Extrusion3d>>) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(x), Some(y)) => x.as_ref() == y.as_ref(),
+        _ => false,
+    }
+}
+
 fn surfaces_equal(a: &photocraft_raster::Surface, b: &photocraft_raster::Surface) -> bool {
     surface_damage(a, b) == Some(Rect::EMPTY)
 }
@@ -169,6 +177,7 @@ fn layer_pixels_cmp(a: &Layer, b: &Layer, surf: SurfaceCmp) -> bool {
         advanced,
         video: _,
         xmp: _,
+        extrusion,
     } = a;
     *id == b.id
         && *visible == b.visible
@@ -182,6 +191,7 @@ fn layer_pixels_cmp(a: &Layer, b: &Layer, surf: SurfaceCmp) -> bool {
         && *excluded_channels == b.excluded_channels
         && *blend_if == b.blend_if
         && *advanced == b.advanced
+        && extrusion_equal(extrusion, &b.extrusion)
         && match (fill_cache, &b.fill_cache) {
             (None, None) => true,
             (Some(x), Some(y)) => x.fill == y.fill,

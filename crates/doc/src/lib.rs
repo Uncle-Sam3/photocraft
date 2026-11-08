@@ -14,6 +14,7 @@ pub mod analysis;
 pub mod blend_if;
 pub mod comps;
 pub mod effects;
+pub mod extrude;
 pub mod frame;
 pub mod mode;
 pub mod pattern;
@@ -35,6 +36,10 @@ pub use comps::{Artboard, ArtboardBackground, CompAppearance, CompLayerState, La
 pub use effects::{
     Bevel, BevelContour, BevelStyle, BevelTechnique, BevelTexture, Contour, Effect, FxCommon, FxPaint, GlobalLight, Glow, GlowSource, GlowTechnique, Gradient,
     GradientStyle, Satin, Shadow, StrokeFx, StrokePosition,
+};
+pub use extrude::{
+    Extrusion3d, ExtrusionBevel, ExtrusionCamera, ExtrusionFace, ExtrusionLight, ExtrusionMaterials, ExtrusionOrigin, ExtrusionPose, FaceGradient,
+    FaceMaterial, GradientStop, MaterialPaint, UvMap,
 };
 pub use frame::Frame;
 pub use mode::{ColorTable, Duotone, DuotoneInk, StackMode};
@@ -654,6 +659,10 @@ pub struct Layer {
     pub effects: Effects,
     pub label: LabelColor,
     pub content: LayerContent,
+    /// Editable 3D extrusion of this layer's outline. When its cache is present, [`Layer::surface`]
+    /// returns that render so the canvas shows the solid instead of the flat fill. The outline
+    /// itself stays on the shape or type layer.
+    pub extrusion: Option<Box<Extrusion3d>>,
     /// Frame Tool container; its clipping outline and image have independent placements. Boxed:
     /// inline it grows every layer by 224 bytes, and deep documents recurse on small stacks.
     pub frame: Option<Box<Frame>>,
@@ -714,6 +723,7 @@ impl Layer {
             effects: Effects { enabled: true, ..Default::default() },
             label: LabelColor::None,
             content,
+            extrusion: None,
             frame: None,
             psd_blocks: Vec::new(),
             psd_id: None,
@@ -750,6 +760,11 @@ impl Layer {
         }
     }
     pub fn surface(&self) -> Option<&Surface> {
+        if let Some(ext) = &self.extrusion
+            && let Some(cache) = &ext.cache
+        {
+            return Some(cache);
+        }
         match &self.content {
             LayerContent::Raster(s) => Some(s),
             LayerContent::Text(t) => t.cache.as_ref(),

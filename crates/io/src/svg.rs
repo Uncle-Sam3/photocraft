@@ -1503,9 +1503,10 @@ impl Conv {
                     return;
                 }
                 let only_id = g.opacity().get() >= 1.0 && g.blend_mode() == usvg::BlendMode::Normal;
-                // A lone child takes the group's name (and its clip, when it has no vector mask of
-                // its own).
-                if only_id && children.len() == 1 && (clip.is_none() || children.iter().all(|c| c.vector_mask.is_none())) {
+                // A nameless group with one child is bookkeeping (usvg wraps some elements that
+                // way). A group the file named stays a group even with one child, so Ungroup can
+                // open it one level at a time. The child's geometry already includes the transform.
+                if only_id && g.id().is_empty() && children.len() == 1 && (clip.is_none() || children.iter().all(|c| c.vector_mask.is_none())) {
                     if let Some(mut child) = children.into_iter().next() {
                         if !g.id().is_empty() {
                             child.name = g.id().to_string();

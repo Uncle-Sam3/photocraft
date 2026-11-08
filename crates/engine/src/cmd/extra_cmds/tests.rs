@@ -909,3 +909,64 @@ fn rasterize_smart_object_layer() {
     assert!(matches!(active(&s4).content, LayerContent::Raster(_)));
     assert_eq!(pixel(&s4, 30, 30), vec![1.0, 1.0, 0.0, 1.0]);
 }
+
+#[test]
+fn svg_groups_ungroup_one_level_keep_transforms_and_do_not_split_holes() {
+    let svg = br##"<svg xmlns="http://www.w3.org/2000/svg" width="90" height="40">
+        <g id="outer" transform="translate(8,6)" opacity="0.5">
+          <g id="inner" transform="translate(4,2)">
+            <path id="ring" fill="#00aa00" fill-rule="evenodd" d="M0 0 h20 v16 h-20 z M6 4 h8 v8 h-8 z"/>
+          </g>
+          <rect id="side" x="40" y="0" width="10" height="10" fill="#2244ff"/>
+        </g>
+      </svg>"##;
+    let imported = photocraft_io::svg::import_svg("grouped.svg", svg).unwrap();
+    assert!(imported.warnings.iter().all(|w| !w.contains("rasterised")), "{:?}", imported.warnings);
+    let mut s = Session::new();
+    s.add_document(imported.document, None);
+    let outer = layer_named(&s, "outer");
+    s.execute("layer.ungroupLayers", json!({"layer": outer.0})).unwrap();
+    assert!(doc(&s).layer(outer).is_none(), "ungroup removes only that group");
+    let inner = layer_named(&s, "inner");
+    assert!(doc(&s).layer(inner).unwrap().is_group(), "the nested group stays until it is ungrouped");
+    assert!((doc(&s).layer(inner).unwrap().opacity - 0.5).abs() < 1e-4, "group opacity is folded in");
+    let side = layer_named(&s, "side");
+    let side_x = shape_anchor(&s, side, 0, 0).0;
+    assert!((side_x - 48.0).abs() < 0.6, "translate stays on the shape, x={side_x}");
+    let ring = layer_named(&s, "ring");
+    let before = shape_subpaths(&s, ring);
+    let ring_x = shape_anchor(&s, ring, 0, 0).0;
+    assert!((ring_x - 12.0).abs() < 0.6, "nested translate is in the curves, x={ring_x}");
+    s.execute("layer.ungroupLayers", json!({"layer": inner.0})).unwrap();
+    let subs = shape_subpaths(&s, ring);
+    assert_eq!(subs, before, "ungroup does not split a compound path");
+    assert!(subs >= 2, "the even-odd ring keeps its hole as subpaths");
+    assert!((shape_anchor(&s, ring, 0, 0).0 - ring_x).abs() < 0.6);
+    s.active_mut().unwrap().selected_layers = vec![side, ring];
+    s.active_mut().unwrap().active_layer = Some(ring);
+    let grouped = s.execute("layer.groupLayers", json!({"name": "again"})).unwrap()["layer"].as_u64().unwrap();
+    assert!(doc(&s).layer(LayerId(grouped)).unwrap().is_group());
+    assert!((shape_anchor(&s, ring, 0, 0).0 - ring_x).abs() < 0.6, "regroup does not move the curves");
+    assert!(s.undo());
+    assert!(doc(&s).layer(LayerId(grouped)).is_none());
+    assert!(s.undo());
+    assert!(doc(&s).layer(inner).unwrap().is_group(), "undo restores one group level");
+}
+
+fn layer_named(s: &Session, name: &str) -> LayerId {
+    doc(s).walk().into_iter().find(|(_, _, l)| l.name == name).map(|(_, _, l)| l.id).unwrap_or_else(|| panic!("missing {name}"))
+}
+
+fn shape_anchor(s: &Session, id: LayerId, sub: usize, knot: usize) -> (f64, f64) {
+    let LayerContent::Shape(sh) = &doc(s).layer(id).unwrap().content else { panic!("not a shape") };
+    let p = sh.path.subpaths[sub].knots[knot].anchor;
+    (p.x, p.y)
+}
+
+fn shape_subpaths(s: &Session, id: LayerId) -> usize {
+    match &doc(s).layer(id).unwrap().content {
+        LayerContent::Shape(sh) => sh.path.subpaths.len(),
+        LayerContent::Group(_) => 0,
+        _ => 0,
+    }
+}

@@ -249,6 +249,7 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
             app.ui.status_error = true;
         }
     }
+    super::extrude_ui::show(app, ui, layer);
     match &layer.content {
         LayerContent::Text(_) => crate::type_tool::type_properties(app, ui),
         LayerContent::Shape(_) => {

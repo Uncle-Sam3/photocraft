@@ -160,6 +160,44 @@ fn add_anchor(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(r)
 }
 
+fn close_path(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "path.close";
+    let sub = p.get("subpath").and_then(Value::as_u64).map(|n| n as usize).unwrap_or(0);
+    edit_path(s, CMD, p, "Close Path", |path| edit::close_subpath(path, sub))
+}
+
+fn break_path(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "path.break";
+    let at = knot(CMD, p)?;
+    edit_path(s, CMD, p, "Break Path", |path| edit::break_anchor(path, at))
+}
+
+fn join_paths(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "path.join";
+    let a = index(CMD, p, "subpath")?;
+    let b = index(CMD, p, "other")?;
+    edit_path(s, CMD, p, "Join Paths", |path| edit::join_subpaths(path, a, b))
+}
+
+fn segment_line(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "path.segmentToLine";
+    let at = knot(CMD, p)?;
+    edit_path(s, CMD, p, "Straight Segment", |path| edit::segment_to_line(path, at))
+}
+
+fn segment_curve(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "path.segmentToCurve";
+    let at = knot(CMD, p)?;
+    edit_path(s, CMD, p, "Curve Segment", |path| edit::segment_to_curve(path, at))
+}
+
+fn set_node(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "path.setNode";
+    let at = knot(CMD, p)?;
+    let kind = p.get("kind").and_then(Value::as_str).unwrap_or("smooth").to_string();
+    edit_path(s, CMD, p, "Set Node Type", move |path| edit::set_node_kind(path, at, &kind))
+}
+
 fn delete_anchor(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "path.deleteAnchor";
     let k = knot(CMD, p)?;
@@ -294,7 +332,17 @@ pub fn specs() -> Vec<CommandSpec> {
             r#""subpaths":[i,…],"op":"combine|subtract|intersect|exclude" (the shape components holding these subpaths take the operation; the first component always combines and keeps its own; the Path Operations menu with components selected)"#.into(),
             set_operation,
         ),
+        shape_cmd("path.close", "Close Path", r#""subpath":i=0"#, close_path),
+        shape_cmd("path.break", "Break Path", r#""subpath":i,"knot":j (closed path opens here; open path splits in two and both keep the node)"#, break_path),
+        shape_cmd("path.join", "Join Paths", r#""subpath":i,"other":j (two open subpaths; closed paths, including a compound hole, are refused)"#, join_paths),
+        shape_cmd("path.segmentToLine", "Straight Segment", r#""subpath":i,"knot":j (the segment leaving that node)"#, segment_line),
+        shape_cmd("path.segmentToCurve", "Curve Segment", r#""subpath":i,"knot":j"#, segment_curve),
+        shape_cmd("path.setNode", "Set Node Type", r#""subpath":i,"knot":j,"kind":"cusp|smooth|symmetric""#, set_node),
     ]
+}
+
+fn shape_cmd(id: &'static str, label: &'static str, params: &'static str, run: fn(&mut Session, &Value) -> Result<Value>) -> CommandSpec {
+    CommandSpec { id, label, menu: &["Shape"], shortcut: None, params, enabled: has_doc, run, journal: true }
 }
 
 #[cfg(test)]
