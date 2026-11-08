@@ -337,13 +337,38 @@ pub(crate) fn writable(app: &PhotocraftApp, target: &PathRef) -> bool {
 
 /// The frontmost editable path under `p` and what is hit on it: the handles shown on a selection
 /// still valid count when `handles` is set. The hover and the press share it.
+/// Where a source-path point is drawn when its layer is extruded: on the posed outline.
+fn view_point(app: &PhotocraftApp, target: &PathRef, p: [f64; 2]) -> [f64; 2] {
+    let PathRef::Layer(id) = *target else { return p };
+    let Some(ext) = app.session.active().and_then(|st| st.doc.layer(photocraft_doc::LayerId(id))).and_then(|l| l.extrusion.as_deref()) else {
+        return p;
+    };
+    photocraft_vector::extrude::project_source_point(ext, p[0], p[1]).map(|q| [f64::from(q[0]), f64::from(q[1])]).unwrap_or(p)
+}
+
+fn view_path(app: &PhotocraftApp, target: &PathRef, path: &Path) -> Path {
+    let mut out = path.clone();
+    for sub in &mut out.subpaths {
+        for knot in &mut sub.knots {
+            let a = view_point(app, target, [knot.anchor.x, knot.anchor.y]);
+            let i = view_point(app, target, [knot.in_ctrl.x, knot.in_ctrl.y]);
+            let o = view_point(app, target, [knot.out_ctrl.x, knot.out_ctrl.y]);
+            knot.anchor = Point::new(a[0], a[1]);
+            knot.in_ctrl = Point::new(i[0], i[1]);
+            knot.out_ctrl = Point::new(o[0], o[1]);
+        }
+    }
+    out
+}
+
 pub(crate) fn hit_target(app: &PhotocraftApp, p: [f64; 2], handles: bool) -> Option<(PathRef, Path, Hit)> {
     let tol = 6.0 / f64::from(app.point_zoom().max(0.01));
     let ds = &app.ui.direct_selection;
     let valid = handles && still_valid(app, ds);
     candidates(app).into_iter().filter(|(r, _)| writable(app, r)).find_map(|(r, path)| {
-        let shown = if valid && ds.target.as_ref() == Some(&r) { shown_handles(ds, &path) } else { Vec::new() };
-        edit::hit(&path, Point::new(p[0], p[1]), tol, &shown).map(|h| (r, path, h))
+        let viewed = view_path(app, &r, &path);
+        let shown = if valid && ds.target.as_ref() == Some(&r) { shown_handles(ds, &viewed) } else { Vec::new() };
+        edit::hit(&viewed, Point::new(p[0], p[1]), tol, &shown).map(|h| (r, path, h))
     })
 }
 
@@ -731,6 +756,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, to_scr: &dyn F
             Some(Drag::Edit { target, preview: Some(p), .. }) if *target == r => p.clone(),
             _ => path,
         };
+        let path = view_path(app, &r, &path);
         crate::vector_ui::draw_outline(painter, &path, to_scr, accent);
         let ours = ds.target.as_ref() == Some(&r);
         for &(k, h) in if ours { shown_handles(ds, &path) } else { Vec::new() }.iter() {

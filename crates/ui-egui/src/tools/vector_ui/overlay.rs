@@ -177,7 +177,10 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
             let transforming_this_shape =
                 app.ui.transform.as_ref().is_some_and(|t| t.layer == l.id.0 && !t.selection && t.target.is_none() && t.path.is_none());
             if !transforming_this_shape {
-                draw_path(&sh.path, anchors);
+                // An extrusion is drawn posed. The blue contour is that same outline in the
+                // current view, not the flat source left behind on the document plane.
+                let shown = l.extrusion.as_deref().map(|ext| photocraft_vector::extrude::project_source_path(ext, &sh.path)).unwrap_or_else(|| sh.path.clone());
+                draw_path(&shown, anchors);
             }
         }
         // A targeted vector mask shows its path with any tool (#196).

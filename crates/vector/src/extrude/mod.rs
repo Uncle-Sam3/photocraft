@@ -23,6 +23,33 @@ mod tests;
 pub use mesh::Mesh;
 pub use render::project_local;
 
+/// The source outline point `(x, y)` on the front of the solid, in document pixels,
+/// using the same pose and camera as the mesh. The editable path stays in the document
+/// plane; this is only where that point appears in the current 3D view.
+pub fn project_source_point(ext: &Extrusion3d, x: f64, y: f64) -> Option<[f32; 2]> {
+    let (x0, y0, x1, y1) = ext.path.control_bounds()?;
+    let px = ((x0 + x1) * 0.5) as f32;
+    let py = ((y0 + y1) * 0.5) as f32;
+    let z = ext.depth * 0.5 - f32::from(ext.front_bevel.depth).max(0.0);
+    project_local(ext, [x as f32 - px, y as f32 - py, z])
+}
+
+/// Same topology as `path`, with every knot moved to its projected place in the current view.
+pub fn project_source_path(ext: &Extrusion3d, path: &Path) -> Path {
+    let mut out = path.clone();
+    for sub in &mut out.subpaths {
+        for knot in &mut sub.knots {
+            let map = |p: photocraft_geom::Point| {
+                project_source_point(ext, p.x, p.y).map(|q| photocraft_geom::Point::new(f64::from(q[0]), f64::from(q[1]))).unwrap_or(p)
+            };
+            knot.anchor = map(knot.anchor);
+            knot.in_ctrl = map(knot.in_ctrl);
+            knot.out_ctrl = map(knot.out_ctrl);
+        }
+    }
+    out
+}
+
 /// Render `ext` into a sparse surface the size of `canvas` (only the projected pixels are
 /// stored). The result is straight RGBA in `format`.
 pub fn render(ext: &Extrusion3d, canvas: Rect, format: PixelFormat) -> Result<Surface, String> {

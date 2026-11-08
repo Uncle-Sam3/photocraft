@@ -54,6 +54,31 @@ fn a_hole_is_open_in_the_cap_and_has_its_own_wall() {
 }
 
 #[test]
+fn a_rounded_corner_is_filled_out_to_the_arc_not_cut_to_a_chord() {
+    // Top-left radius 28. The chord across that quarter-circle leaves a wedge the arc should cover.
+    let path = crate::shapes::rounded_rect(40.0, 30.0, 160.0, 120.0, [28.0; 4]);
+    let mut ext = unlit(Extrusion3d::new(path, ExtrusionOrigin::Shape, [0.9, 0.1, 0.1, 1.0]));
+    ext.front_bevel = ExtrusionBevel { width: 8.0, depth: 6.0, segments: 4, roundness: 0.8 };
+    let surface = render(&ext, Rect::new(0, 0, 240, 180), PixelFormat::RGBA8).unwrap();
+    let (cx, cy) = (68.0_f64, 58.0);
+    let ang = 225.0_f64.to_radians();
+    let at = |radius: f64| {
+        let x = (cx + radius * ang.cos()).round() as i32;
+        let y = (cy + radius * ang.sin()).round() as i32;
+        (x, y, surface.rgba(x, y))
+    };
+    // Just inside the source arc (bevel or cap). Just outside stays clear.
+    let (_, _, on_arc) = at(26.0);
+    let (ox, oy, outside) = at(30.0);
+    assert!(on_arc[3] > 0.5, "the rounded corner was cut away at radius 26: {on_arc:?}");
+    assert!(outside[3] < 0.2, "pixel outside the arc ({ox},{oy}) is {outside:?}");
+    // The chord sits near radius 28/sqrt(2) ≈ 19.8. A point between the chord and the arc
+    // is empty when the corner is one diagonal instead of the curve.
+    let (_, _, wedge) = at(24.0);
+    assert!(wedge[3] > 0.5, "corner wedge is empty, so the mesh used the chord: {wedge:?}");
+}
+
+#[test]
 fn a_bevel_insets_the_cap_and_adds_bevel_faces() {
     let mut ext = unlit(Extrusion3d::new(rect_path(10.0, 10.0, 90.0, 90.0), ExtrusionOrigin::Path, [1.0, 0.0, 0.0, 1.0]));
     ext.front_bevel = ExtrusionBevel { width: 12.0, depth: 6.0, segments: 3, roundness: 0.0 };

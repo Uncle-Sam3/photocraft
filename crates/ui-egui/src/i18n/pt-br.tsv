@@ -4568,9 +4568,8 @@ smartSvg	AI/PDF/EPS contents will be edited as SVG. Saving replaces the embedded
 	Side wall	Lateral
 	Back bevel	Chanfro traseiro
 	Back face	Face de trás
-	New 3D Extrusion from Layer	Nova extrusão 3D da camada
-	New 3D Extrusion from Work Path	Nova extrusão 3D do demarcador de trabalho
-	New 3D Extrusion from Selection	Nova extrusão 3D da seleção
+	New 3D Extrusion from Selected Layer	Nova extrusão 3D da camada selecionada
+	New 3D Extrusion from Selected Path	Nova extrusão 3D do demarcador selecionado
 	Refresh 3D Extrusion	Atualizar extrusão 3D
 	Remove 3D Extrusion	Remover extrusão 3D
 	Close Path	Fechar demarcador

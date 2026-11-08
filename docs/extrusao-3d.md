@@ -2,23 +2,31 @@
 
 Este guia descreve o que esta compilação do PhotoCraft faz de fato. Não é uma cópia do Photoshop CS6 nem do CorelDRAW, e não usa código nem arquivos desses produtos.
 
+## Pacote para Windows 10 x64
+
+A entrega desta versão de teste é uma pasta portátil: `photocraft.exe` (janela) e `photocraft-cli.exe` (consola). Não há instalador nem pedido de administrador. Descompacte e abra `photocraft.exe`. Com `portable.txt` ao lado do executável, as preferências ficam na pasta `PhotoCraftData`, na mesma pasta, e não em `%APPDATA%`.
+
+O binário foi cruzado a partir de Linux para `x86_64-pc-windows-gnu`, com o CRT do MinGW ligado dentro do executável (`-C target-feature=+crt-static`). Não é o MSI assinado que a integração contínua produz com MSVC e WiX. HEIC não entra neste pacote de teste. O formato PE (máquina `0x8664`, subsistema de janela 2, versão de subsistema 5.2) é o que se confere no ficheiro; isso não substitui uma execução num Windows 10 real.
+
+Nesta compilação GNU, `windows.data.pdf.dll` é importada ao arrancar (a compilação MSVC adia essa carga). O Windows 10 traz essa DLL em `System32`. Se ela faltar, o programa não abre. Não é preciso o redistribuível do Visual C++: não há `libgcc`, `libstdc++` nem `libwinpthread` ao lado do executável.
+
 ## Compilar no Linux x86_64
 
-É preciso o Rust 1.95 ou mais novo (`rust-version` do projeto).
+Quem desenvolve neste repositório pode gerar o mesmo programa com Rust 1.95 ou mais novo:
 
 ```sh
 cargo build -p photocraft --release
 ```
 
-O executável fica em `target/release/photocraft`. Abra-o no ambiente gráfico (wayland ou x11). Não há instalador nesta entrega: o arquivo é o binário nativo.
+O executável fica em `target/release/photocraft`. Esse binário é Linux; não é o programa para Windows 10.
 
 ## Extrusão
 
 Menu **3D**:
 
-- **Nova extrusão 3D da camada** — camada de forma ou de texto. O contorno continua na camada. Com `live`, editar os nós e voltar a renderizar acompanha o traço.
-- **Nova extrusão 3D do demarcador de trabalho** — cria uma forma editável a partir do demarcador e extrude.
-- **Nova extrusão 3D da seleção** — traça a seleção. Uma seleção só de pixels não recupera curvas que o traçado não viu.
+- **Nova extrusão 3D da camada selecionada** — forma vetorial ou texto com contorno. Uma camada de imagem é recusada. O contorno continua editável.
+- **Nova extrusão 3D do demarcador selecionado** — cria uma forma a partir do demarcador de trabalho e extrude.
+- Não há extrusão de uma seleção de pixels: isso traçaria um bitmap, e não faz parte desta função.
 - **Atualizar extrusão 3D** — relê o contorno vivo (útil depois de editar texto).
 - **Remover extrusão 3D** — a forma ou o texto ficam.
 
@@ -37,7 +45,7 @@ No canvas, o eixo no centro do sólido: arrastar orbita a câmera; Alt+arrastar 
 
 Os ajustes voltam no arquivo `.pcraft`, inclusive a imagem, o degradê e a última imagem renderizada. PSD não guarda este modelo 3D.
 
-Os mesmos passos são comandos (`extrude.fromLayer`, `extrude.fromPath`, `extrude.fromSelection`, `extrude.set`, `extrude.setMaterial`, `extrude.refresh`, `extrude.remove`, `extrude.info`), com parâmetros JSON, como o resto do motor. `extrude.setMaterial` com `"face":"side"` e `"source":"image"` recebe `path`, `data` (base64) ou `pixels`. `"source":"gradient"` recebe `gradient.angle` e `gradient.stops` (pelo menos dois). `"source":"solid"` usa `color`.
+Os mesmos passos são comandos (`extrude.fromLayer`, `extrude.fromPath`, `extrude.set`, `extrude.setMaterial`, `extrude.refresh`, `extrude.remove`, `extrude.info`), com parâmetros JSON, como o resto do motor. `extrude.fromSelection` existe só para recusar o traçado de uma seleção de pixels; não aparece no menu. `extrude.setMaterial` com `"face":"side"` e `"source":"image"` recebe `path`, `data` (base64) ou `pixels`. `"source":"gradient"` recebe `gradient.angle` e `gradient.stops` (pelo menos dois). `"source":"solid"` usa `color`.
 
 Um chanfro mais largo que a parede ou que o furo é reduzido até a malha fechar. Intersect, Exclude e demarcador invertido precisam de `path.mergeShapeComponents` antes.
 
@@ -59,9 +67,10 @@ A seleção direta, converter ponto e acrescentar ou apagar âncora já existiam
 
 ## O que esta entrega não faz
 
+- A extrusão é só de vetor: uma forma, um demarcador ou o contorno real de um texto. Uma camada de imagem é recusada, com a frase em português na barra de estado. Uma seleção de pixels não é traçada. Imagens e degradês continuam a ser materiais da frente, do chanfro e da lateral.
+- O contorno azul no modo de edição de caminho é o demarcador de origem visto na pose atual (o mesmo contorno da malha). A caixa de transformação do objeto, com a ferramenta Mover, continua a ser a caixa do sólido e não os nós.
 - PDF: cada página continua a ter uma camada de pré-visualização raster (`Page N preview`). Por cima dela ficam caminhos editáveis quando o ficheiro os desenha: preenchimento, traço e contornos de glifos cujo tipo embutido o leitor consegue ler. Um furo em regra par-ímpar fica no mesmo caminho. Limites, ditos também nos avisos da importação: no máximo 1500 caminhos por página e 4096 nós por caminho; imagens, padrões, máscaras suaves, glifos Type 3 e recortes ficam só na pré-visualização; anotações não viram caminhos; as 14 fontes padrão (Helvetica, Times, Courier, Symbol, ZapfDingbats) não são substituídas nesta compilação, por isso esse texto fica na pré-visualização. Uma página só com imagem, ou um PDF digitalizado, não ganha vetores inventados.
 - CDR (CorelDRAW) não é lido. Abrir um ficheiro `.cdr`, ou um contentor RIFF com tipo `CDR`, devolve um erro e não cria uma imagem raster no lugar das curvas. O `libcdr` 0.1.7 é MPL-2.0, licença fora da lista permitida (ISC, MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, OFL-1.1, Ubuntu-font-1.0, Bitstream-Vera, CC0-1.0, CC-BY-4.0, CC-BY-SA-4.0, LicenseRef-Public-Domain). A lista não foi alargada e o conversor não foi ligado. Nenhuma versão de CDR foi testada, porque o conversor não entra na aplicação. Exporte SVG ou PDF a partir do CorelDRAW.
 - O que o CS6 tem e esta versão de teste não tem: chão, várias luzes editáveis na interface, pintura na malha, Substance, dobrar, torcer, afunilar e inflar. A extrusão tem uma luz infinita e luz ambiente. O painel diz isso. Não é paridade com o Photoshop.
-- A pré-visualização 3D não tem o ambiente completo do CS6: sem chão, sem várias luzes na interface, sem Substance, sem pintura 3D na malha, sem dobra, torção, afunilamento ou inflar. Há uma luz infinita e luz ambiente.
 - Efeitos de camada (sombra, etc.) continuam a usar o contorno 2D da forma, não a silhueta já extrudada.
 - Não há afirmação de paridade numérica com o Photoshop.

@@ -96,7 +96,13 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             if let Some(path) = after.and_then(|a| items.get(a)).map(|i| i.path.clone()) {
                 e.path = path;
             }
-            let at = after.or_else(|| items.iter().rposition(|i| i.path.first() == top.as_ref())).map_or(items.len(), |p| p + 1);
+            // CS6 puts 3D between Filter and View. A brand-new top menu would otherwise
+            // land after Help, where this window's menu bar clips it.
+            let at = if top.as_deref() == Some("3D") {
+                items.iter().position(|i| i.path.first().map(String::as_str) == Some("View")).unwrap_or(items.len())
+            } else {
+                after.or_else(|| items.iter().rposition(|i| i.path.first() == top.as_ref())).map_or(items.len(), |p| p + 1)
+            };
             items.insert(at, e);
         }
     }

@@ -23,7 +23,7 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec {
             id: "extrude.fromLayer",
-            label: "New 3D Extrusion from Layer",
+            label: "New 3D Extrusion from Selected Layer",
             menu: &["3D"],
             shortcut: None,
             params: r##"{"layer":id?,"depth":px?,"frontBevel":{"width":px,"depth":px,"segments":1..16,"roundness":0..1}?,"backBevel":{…}?} — shape or type layer. The outline stays editable."##,
@@ -33,7 +33,7 @@ pub fn specs() -> Vec<CommandSpec> {
         },
         CommandSpec {
             id: "extrude.fromPath",
-            label: "New 3D Extrusion from Work Path",
+            label: "New 3D Extrusion from Selected Path",
             menu: &["3D"],
             shortcut: None,
             params: r##"{"depth":px?} — makes an editable shape layer from the work path and extrudes it."##,
@@ -46,10 +46,10 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec {
             id: "extrude.fromSelection",
             label: "New 3D Extrusion from Selection",
-            menu: &["3D"],
+            menu: &[],
             shortcut: None,
-            params: r##"{"tolerance":0.5..10=2,"depth":px?} — traces the selection into an editable shape and extrudes it. A selection that is only pixels cannot invent curves the march did not see."##,
-            enabled: |s| s.active().filter(|d| d.doc.selection.is_some()).map(|_| ()).ok_or_else(|| "no selection".into()),
+            params: r##"{} — refused. A pixel selection is not traced into an extrusion."##,
+            enabled: |_| Err(NO_TRACE.into()),
             run: from_selection,
             journal: true,
         },
@@ -113,15 +113,19 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
+/// Shown when the active layer is pixels. Extrusion is a vector outline, not a bitmap.
+const RASTER_EXTRUDE: &str = "A extrusão 3D precisa de uma forma vetorial ou do contorno de um texto. Uma camada de imagem não é extrudada.";
+const NO_TRACE: &str = "A extrusão 3D não traça uma seleção de pixels. Extruda uma forma vetorial ou um demarcador.";
+
 fn can_extrude_layer(s: &Session) -> std::result::Result<(), String> {
-    has_outline(s, "a shape layer or a type layer")
+    has_outline(s)
 }
 
-fn has_outline(s: &Session, what: &str) -> std::result::Result<(), String> {
+fn has_outline(s: &Session) -> std::result::Result<(), String> {
     let layer = active(s)?;
     match &layer.content {
         LayerContent::Shape(_) | LayerContent::Text(_) => Ok(()),
-        _ => Err(format!("the active layer is not {what}")),
+        _ => Err(RASTER_EXTRUDE.into()),
     }
 }
 
@@ -167,19 +171,8 @@ fn from_path(s: &mut Session, p: &Value) -> Result<Value> {
     new_shape_extrusion(s, path, ExtrusionOrigin::Path, p)
 }
 
-fn from_selection(s: &mut Session, p: &Value) -> Result<Value> {
-    let tol = p.get("tolerance").and_then(Value::as_f64).unwrap_or(2.0);
-    if !tol.is_finite() || !(0.5..=10.0).contains(&tol) {
-        return Err(bad("extrude.fromSelection", "`tolerance` must be from 0.5 to 10"));
-    }
-    let d = s.active().ok_or(EngineError::NoDocument)?;
-    let area = d.doc.bounds();
-    let mask = photocraft_algo::selection::mask_from_surface(d.doc.selection.as_ref(), area);
-    let path = photocraft_vector::trace::trace_mask(&mask, area, 0.0, tol);
-    if path.subpaths.iter().all(|s| s.knots.len() < 3) {
-        return Err(bad("extrude.fromSelection", "the selection did not trace to a closed outline"));
-    }
-    new_shape_extrusion(s, path, ExtrusionOrigin::Selection, p)
+fn from_selection(_s: &mut Session, _p: &Value) -> Result<Value> {
+    Err(bad("extrude.fromSelection", NO_TRACE))
 }
 
 fn new_shape_extrusion(s: &mut Session, path: Path, origin: ExtrusionOrigin, p: &Value) -> Result<Value> {
@@ -284,7 +277,7 @@ fn outline(doc: &Document, id: LayerId) -> Result<(Path, ExtrusionOrigin, [f32; 
         _ => false,
     };
     if !kind {
-        return Err(EngineError::Other("3D extrusion needs a shape or type layer".into()));
+        return Err(EngineError::Other(RASTER_EXTRUDE.into()));
     }
     let text = match &doc.layer(id).ok_or(EngineError::NoLayer(id))?.content {
         LayerContent::Text(t) => t.clone(),
@@ -767,6 +760,32 @@ mod tests {
             }
         }
         assert!(blue > 20 && blue > red, "blue side pixels {blue}, red front pixels {red}");
+    }
+
+    #[test]
+    fn a_pixel_layer_is_refused_and_a_holed_vector_still_extrudes() {
+        let mut s = session();
+        let err = s.execute("extrude.fromLayer", json!({})).unwrap_err();
+        assert!(err.to_string().contains("não é extrudada"), "{err}");
+        let err = s.execute("extrude.fromSelection", json!({})).unwrap_err();
+        assert!(err.to_string().contains("não traça"), "{err}");
+        let _id = shape(&mut s);
+        let info = s.execute("extrude.fromLayer", json!({"depth": 16.0, "unlit": true})).unwrap();
+        assert!(info["holes"].as_u64().unwrap() >= 1, "{info}");
+        s.execute(
+            "extrude.setMaterial",
+            json!({"face": "side", "source": "image", "pixels": {"width": 2, "height": 1, "rgba": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0]}}),
+        )
+        .unwrap();
+        s.execute(
+            "extrude.setMaterial",
+            json!({"face": "frontBevel", "source": "gradient", "gradient": {"angle": 0.0, "stops": [[0.0, [0.0, 0.8, 0.2, 1.0]], [1.0, [0.1, 0.2, 0.9, 1.0]]]}}),
+        )
+        .unwrap();
+        let info = s.execute("extrude.info", json!({})).unwrap();
+        assert_eq!(info["materials"]["side"]["source"], "image");
+        assert_eq!(info["materials"]["frontBevel"]["source"], "gradient");
+        assert!(info["materials"]["side"]["image"].as_bool().unwrap());
     }
 
     fn striped_png() -> Vec<u8> {
