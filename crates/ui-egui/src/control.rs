@@ -14,7 +14,7 @@
 //! - `ui.dialog.apply {dialog}`: commit Preferences changes without closing the dialog
 //! - `ui.window.open {document?}` / `ui.window.close {window}`: extra document windows
 //! - `ui.pointer {events: [{kind: down|move|up, x, y, pressure?, tiltX?, tiltY?, rotation?}], tool?, modifiers?, button?}`: drive the active tool in document coordinates (`button: "secondary"` opens the tool's canvas context menu (the pasteboard colour menu outside the image) or Brush Preset picker, or erases with Preferences › Tools › Right-click with painting tools = erase)
-//! - `ui.click {x, y, button?, count?}` / `ui.move {x, y}`: synthetic pointer input in screen points
+//! - `ui.click {x, y, button?, count?, hold?, release?, alt?}` / `ui.move {x, y, alt?}`: synthetic pointer input in screen points. `hold: true` presses and leaves the button down so later `ui.move` calls drag; `release: true` lifts it. `alt: true` sets the Alt modifier for that press or move (an extrusion gizmo drag orbits, and Alt-drag turns the object)
 //!   (`count` at most [`MAX_CLICKS`], `x` and `y` within ±[`MAX_SCREEN_POINT`])
 //! - `ui.key {key, command?, shift?, alt?, ctrl?}` / `ui.type {text}`: synthetic keyboard input
 //! - The synthetic input methods reject unknown fields, wrong types, unknown enum values and

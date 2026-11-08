@@ -990,6 +990,11 @@ pub(crate) fn route(name: &str, bytes: &[u8]) -> Route {
 /// Dispatches format-specific importers and propagates a structured PSD damage
 /// flag alongside the ordinary best-effort import result.
 fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, opts: &ImportOptions, damaged: &mut bool) -> Result<ImportResult, IoError> {
+    if is_cdr_input(name, bytes) {
+        return Err(IoError::Unsupported(
+            "CorelDRAW CDR is not supported. The open-source libcdr converter is MPL-2.0, which is outside this project's licence allowlist, so it is not linked and the file is not rasterized. Export SVG or PDF from CorelDRAW and open that instead. Supported CDR versions were not tested because the converter is not included.".into(),
+        ));
+    }
     // SVG content wins over a misleading `.pdf` suffix, matching the preflight (which checks SVG
     // before PDF).
     if is_svg_input(name, bytes) {
@@ -1021,6 +1026,16 @@ fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, o
 /// Extension names can be wrong (for example, an image downloaded as WebP and renamed `.svg`).
 /// Valid plain SVG is recognized by its XML content; an otherwise unknown `.svg` is passed to the
 /// SVG parser for a useful malformed-file error, and `.svgz` disambiguates gzip streams.
+/// A `.cdr` name, or a RIFF container whose form type is `CDR`. Newer CorelDRAW files can
+/// also be ZIP containers; the extension is what the user picks, and those are not sniffed
+/// as images either. Nothing in the file is drawn.
+fn is_cdr_input(name: &str, bytes: &[u8]) -> bool {
+    if has_extension(name, "cdr") {
+        return true;
+    }
+    bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..11] == b"CDR"
+}
+
 pub fn is_svg_input(name: &str, bytes: &[u8]) -> bool {
     // Keep the SVG extension as a fallback for malformed files so the SVG parser can return an
     // actionable SVG error. A recognized raster signature still wins over a misleading `.svg`
@@ -1425,6 +1440,17 @@ mod tests {
         assert_eq!(import_preflight("x.afphoto", b"Affinity"), ImportPreflight::Unbounded);
         // A Photoshop extension whose bytes are a readable flat image follows the image.
         assert_eq!(import_preflight("misnamed.psd", png), ImportPreflight::Flat);
+    }
+
+    #[test]
+    fn a_cdr_file_is_refused_instead_of_being_rasterized() {
+        let err = import("logo.cdr", b"RIFF\0\0\0\0CDR not a drawing").unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("CDR is not supported"), "{message}");
+        assert!(message.contains("MPL-2.0"), "{message}");
+        assert!(message.contains("not rasterized"), "{message}");
+        let riff = import("drawing.bin", b"RIFF\x24\x00\x00\x00CDRxxxx").unwrap_err();
+        assert!(riff.to_string().contains("not rasterized"), "{riff}");
     }
 
     /// Verifies a valid PSD remains editable after import.

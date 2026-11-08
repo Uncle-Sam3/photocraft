@@ -1169,7 +1169,8 @@ fn input_methods(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequ
 }
 
 fn click(app: &mut PhotocraftApp, ctx: &egui::Context, p: &Value, click: bool) -> Outcome {
-    let fields: &[&str] = if click { &["x", "y", "button", "count"] } else { &["x", "y"] };
+    // `hold` leaves the button down so a later `ui.move` is a drag. `release` lifts it.
+    let fields: &[&str] = if click { &["x", "y", "button", "count", "hold", "release", "alt"] } else { &["x", "y", "alt"] };
     let parsed = (|| -> std::result::Result<_, String> {
         let p = input_object(p, None, fields)?;
         // Screen coordinates in points (as reported by ui.inspect window size).
@@ -1185,16 +1186,34 @@ fn click(app: &mut PhotocraftApp, ctx: &egui::Context, p: &Value, click: bool) -
         if clicks > MAX_CLICKS {
             return Err(format!("`count` must be at most {MAX_CLICKS} (got {clicks})"));
         }
-        Ok((egui::pos2(x, y), button, clicks))
+        let hold = bool_field(&p, "hold")?.unwrap_or(false);
+        let release = bool_field(&p, "release")?.unwrap_or(false);
+        if hold && release {
+            return Err("`hold` and `release` cannot both be set".into());
+        }
+        if hold && clicks != 1 {
+            return Err("`hold` is one press; leave `count` unset".into());
+        }
+        let alt = bool_field(&p, "alt")?.unwrap_or(false);
+        Ok((egui::pos2(x, y), button, clicks, hold, release, alt))
     })();
-    let (pos, button, clicks) = match parsed {
+    let (pos, button, clicks, hold, release, alt) = match parsed {
         Ok(parsed) => parsed,
         Err(e) => return err(e),
     };
     app.synthetic.push(egui::Event::PointerMoved(pos));
-    for _ in 0..clicks {
-        app.synthetic.push(egui::Event::PointerButton { pos, button, pressed: true, modifiers: Default::default() });
-        app.synthetic.push(egui::Event::PointerButton { pos, button, pressed: false, modifiers: Default::default() });
+    let modifiers = egui::Modifiers { alt, ..Default::default() };
+    app.synthetic.push(egui::Event::ModifiersChanged(modifiers));
+    if hold {
+        app.synthetic.push(egui::Event::PointerButton { pos, button, pressed: true, modifiers });
+    } else if release {
+        app.synthetic.push(egui::Event::PointerButton { pos, button, pressed: false, modifiers });
+        app.synthetic.push(egui::Event::ModifiersChanged(egui::Modifiers::default()));
+    } else if click {
+        for _ in 0..clicks {
+            app.synthetic.push(egui::Event::PointerButton { pos, button, pressed: true, modifiers });
+            app.synthetic.push(egui::Event::PointerButton { pos, button, pressed: false, modifiers });
+        }
     }
     ctx.request_repaint();
     Outcome::AfterInput
@@ -1550,7 +1569,7 @@ fn app_open(app: &mut PhotocraftApp, path: &str, approved: bool) -> Outcome {
         Some(read) => read(path),
         None => Err("automation read authority is not configured".into()),
     };
-    wrap(opened.and_then(|(name, bytes)| {
+    match opened.and_then(|(name, bytes)| {
         let name = app.open_name(&name);
         let warnings = app.open_automation_bytes_with_approval(&name, &bytes, approved)?;
         // Brushes/gradients go to the preset libraries: no document, no Open Recent entry.
@@ -1558,7 +1577,15 @@ fn app_open(app: &mut PhotocraftApp, path: &str, approved: bool) -> Outcome {
             app.opened_from(path);
         }
         Ok(json!({"path": path, "name": name, "warnings": warnings}))
-    }))
+    }) {
+        Ok(value) => ok(value),
+        // Same status and notice as File › Open, so a refused CDR is visible in the window.
+        Err(error) => {
+            let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+            app.open_failed(name, &error);
+            err(error)
+        }
+    }
 }
 
 /// Directory .pcraft (the native on-disk form) loads through a capability-scoped

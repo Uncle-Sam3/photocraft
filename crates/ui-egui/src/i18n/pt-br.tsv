@@ -4542,6 +4542,11 @@ smartSvg	AI/PDF/EPS contents will be edited as SVG. Saving replaces the embedded
 	Keep Relative Position During Layer Reordering	Manter a posição relativa ao reordenar camadas
 	Shrinkwrap Canvas on Save	Reduzir a tela ao conteúdo ao salvar
 	3D Extrusion	Extrusão 3D
+	Test build: one light. No taper, twist, bend or mesh painting.	Versão de teste: uma luz. Sem afunilar, torcer, dobrar ou pintar a malha.
+	Depth, bevel and camera	Profundidade, chanfro e câmara
+	Edit surfaces…	Editar superfícies…
+	Extrusion surfaces	Superfícies da extrusão
+	Text without an embedded font, clipping, images and Type 3 glyphs stay in a PDF's raster preview.	Texto sem fonte embutida, recortes, imagens e glifos Type 3 ficam na pré-visualização raster do PDF.
 	Extrusion depth	Profundidade da extrusão
 	Front bevel width	Largura do chanfro frontal
 	Front bevel depth	Profundidade do chanfro frontal

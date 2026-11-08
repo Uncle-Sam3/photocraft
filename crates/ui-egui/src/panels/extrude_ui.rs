@@ -9,8 +9,36 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
     let Some(ext) = layer.extrusion.as_ref() else { return };
     ui.add_space(6.0);
     ui.label(tl!("3D Extrusion"));
+    ui.label(egui::RichText::new(tl!("Test build: one light. No taper, twist, bend or mesh painting.")).small().weak());
     let id = layer.id.0;
+    // The Properties group is squeezed to its compact height on an 800 pt window, which is not
+    // enough for five faces. The button stays in that strip; the window holds every control.
+    let open_id = egui::Id::unique(("extrude-surfaces-open", id));
+    let mut open = ui.ctx().data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
+    if ui.button(tl!("Edit surfaces…")).clicked() {
+        open = !open;
+    }
+    ui.ctx().data_mut(|d| d.insert_temp(open_id, open));
+    if open {
+        let mut close = false;
+        egui::Window::new(tl!("Extrusion surfaces"))
+            .id(egui::Id::unique(("extrude-surfaces", id)))
+            .collapsible(false)
+            .resizable(true)
+            .default_width(420.0)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ui.ctx(), |ui| {
+                surfaces(app, ui, ext, id);
+                if ui.button(tl!("Close")).clicked() {
+                    close = true;
+                }
+            });
+        if close {
+            ui.ctx().data_mut(|d| d.insert_temp(open_id, false));
+        }
+    }
     let row = |salt, label: &str, current, range, suffix: &'static str| Slider { layer: id, salt, label: label.to_string(), current, range, suffix };
+    egui::CollapsingHeader::new(tl!("Depth, bevel and camera")).id_salt(("extrude-geom", id)).default_open(false).show(ui, |ui| {
     slider(app, ui, row("depth", tl!("Extrusion depth"), ext.depth, 1.0..=400.0, "px"), |v| json!({"depth": v}));
     slider(
         app,
@@ -48,36 +76,42 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
             let _ = app.run("extrude.remove", json!({"layer": id}));
         }
     });
+    });
+}
+
+fn surfaces(app: &mut PhotocraftApp, ui: &mut egui::Ui, ext: &photocraft_doc::Extrusion3d, id: u64) {
     ui.label(tl!("Surface"));
     for face in ExtrusionFace::ALL {
         let mat = ext.materials.face(face);
-        ui.horizontal(|ui| {
-            ui.label(face_label(face));
+        ui.label(egui::RichText::new(face_label(face)).small());
+        ui.horizontal_wrapped(|ui| {
             for (name, label) in [("solid", tl!("Flat colour")), ("image", tl!("Image")), ("gradient", tl!("Gradient"))] {
                 if ui.selectable_label(mat.paint.name() == name, label).clicked() {
                     let _ = app.run("extrude.setMaterial", json!({"layer": id, "face": face.name(), "source": name}));
                 }
             }
         });
-        if ui.small_button(tl!("Gradient along the surface")).clicked() {
-            let _ = app.run(
-                "extrude.setMaterial",
-                json!({
-                    "layer": id,
-                    "face": face.name(),
-                    "source": "gradient",
-                    "gradient": {"angle": if face == ExtrusionFace::Side { 90.0 } else { 0.0 }, "stops": [[0.0, [0.95, 0.75, 0.35, 1.0]], [1.0, [0.25, 0.18, 0.45, 1.0]]]}
-                }),
-            );
-        }
     }
     ui.label(tl!("Side image"));
     let mut path = ui.ctx().data(|d| d.get_temp::<String>(egui::Id::unique("extrude-image-path"))).unwrap_or_default();
     ui.text_edit_singleline(&mut path);
     ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique("extrude-image-path"), path.clone()));
-    if ui.button(tl!("Use image on side")).clicked() && !path.trim().is_empty() {
-        let _ = app.run("extrude.setMaterial", json!({"layer": id, "face": "side", "source": "image", "path": path}));
-    }
+    ui.horizontal_wrapped(|ui| {
+        if ui.button(tl!("Use image on side")).clicked() && !path.trim().is_empty() {
+            let _ = app.run("extrude.setMaterial", json!({"layer": id, "face": "side", "source": "image", "path": path}));
+        }
+        if ui.button(tl!("Gradient along the surface")).clicked() {
+            let _ = app.run(
+                "extrude.setMaterial",
+                json!({
+                    "layer": id,
+                    "face": "side",
+                    "source": "gradient",
+                    "gradient": {"angle": 90.0, "stops": [[0.0, [0.95, 0.75, 0.35, 1.0]], [0.5, [0.2, 0.75, 0.95, 1.0]], [1.0, [0.25, 0.18, 0.45, 1.0]]]}
+                }),
+            );
+        }
+    });
 }
 
 fn face_label(face: ExtrusionFace) -> String {
