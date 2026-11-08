@@ -1,16 +1,19 @@
 //! PDF import: craft-pdf (a Rust PDF reader and renderer built on Hayro) rasterizes the
 //! selected pages, and each page becomes one artboard.
 //!
-//! Raster pages only: editable text and vector import would need craft-pdf's `interpret`
-//! device and is not part of this importer. The renderer's hard output bounds (8192 px per
+//! The same interpreter also replays path and glyph-outline commands into shape layers
+//! (`pdf_vectors`). Images, patterns, soft masks, Type 3 glyphs, clipping and text without a
+//! readable embedded font stay in the raster preview layer and are listed in the warnings. A
+//! page with no paths (a scan, or an image-only page) is only that preview. The renderer's
+//! hard output bounds (8192 px per
 //! side and 64M px per page) and a document-wide strip budget are respected by lowering the
 //! effective DPI, so each page keeps its physical size: pixels / resolution * 72 pt.
 //!
 //! The renderer is pure Rust and runs on every desktop platform: no shared library is loaded
 //! or shipped, and a malformed file is reported as an error rather than taking the process down.
 //!
-//! Pages are drawn with the interpreter's default annotation settings, so annotations and
-//! filled-in form fields are rendered; comments are not hidden.
+//! The raster preview uses the interpreter's default annotation settings, so annotations and
+//! filled-in form fields are painted there. They are not imported as editable paths.
 
 use crate::{ImportOptions, ImportResult, IoError};
 #[cfg(not(target_arch = "wasm32"))]
@@ -196,8 +199,13 @@ pub fn import(name: &str, bytes: &[u8], opts: &ImportOptions, ctl: &Interrupt) -
             surface.write_region(Rect::from_xywh(x as i32, top, width, band_height), &data);
         }
         let rect = Rect::new(x as i32, 0, (x + width) as i32, height as i32);
-        let layer = Layer::new(format!("Page {page_number}"), LayerContent::Raster(surface));
-        let group = Group { children: vec![layer], expanded: true, artboard: Some(Artboard::new(rect)), frame_stroke: None };
+        let preview = Layer::new(format!("Page {page_number} preview"), LayerContent::Raster(surface));
+        let (mut vectors, vector_notes) = crate::pdf_vectors::page_shapes(page, dpi, x as i32, page_number);
+        warnings.extend(vector_notes);
+        let mut children = Vec::with_capacity(1 + vectors.len());
+        children.push(preview);
+        children.append(&mut vectors);
+        let group = Group { children, expanded: true, artboard: Some(Artboard::new(rect)), frame_stroke: None };
         doc.layers.push(Layer::new(format!("Page {page_number}"), LayerContent::Group(group)));
         x = x.saturating_add(width).saturating_add(GAP);
         ctl.progress((index + 1) as f32 / count as f32);
@@ -370,5 +378,89 @@ mod tests {
         };
         assert!(matches!(render_error(1, 72.0, error), IoError::Cancelled), "the render error maps to Cancelled");
         assert!(polls.load(Ordering::SeqCst) >= 10, "the watcher must keep polling the interrupt");
+    }
+
+    fn one_page(content: &str) -> Vec<u8> {
+        let mut pdf = PdfDocument::with_version("1.5");
+        let pages_id = pdf.new_object_id();
+        let content_id = pdf.add_object(Stream::new(dictionary! {}, content.as_bytes().to_vec()));
+        let page_id = pdf.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => Object::Array(vec![Object::Real(0.0), Object::Real(0.0), Object::Real(200.0), Object::Real(100.0)]),
+            "Contents" => content_id,
+            "Resources" => dictionary! {},
+        });
+        pdf.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => Object::Array(vec![Object::Reference(page_id)]),
+                "Count" => 1,
+            }),
+        );
+        let catalog = pdf.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        pdf.trailer.set("Root", catalog);
+        let mut bytes = Vec::new();
+        pdf.save_to(&mut bytes).expect("writing the page");
+        bytes
+    }
+
+    fn shape_layers(doc: &photocraft_doc::Document) -> Vec<photocraft_doc::ShapeLayer> {
+        let mut found = Vec::new();
+        for layer in &doc.layers {
+            let photocraft_doc::LayerContent::Group(group) = &layer.content else { continue };
+            for child in &group.children {
+                if let photocraft_doc::LayerContent::Shape(shape) = &child.content {
+                    found.push(shape.clone());
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn a_filled_rect_and_a_stroke_stay_editable_paths() {
+        let pdf = one_page("0 0 1 rg 10 10 40 20 re f 1 0 0 RG 3 w 10 40 m 60 40 l S");
+        let options = crate::ImportOptions { pdf_dpi: 72.0, ..crate::ImportOptions::default() };
+        let result = import("box.pdf", &pdf, &options, &Interrupt::NONE).expect("import");
+        let shapes = shape_layers(&result.document);
+        assert!(shapes.len() >= 2, "fill and stroke, got {}", shapes.len());
+        let fill = shapes.iter().find(|s| s.fill.is_some()).expect("a filled path");
+        let photocraft_doc::Fill::Solid(color) = fill.fill.as_ref().unwrap() else { panic!("solid fill") };
+        let rgb = color.to_rgb();
+        assert!(rgb[2] > 0.8 && rgb[0] < 0.2, "blue fill, got {rgb:?}");
+        let sub = fill.path.subpaths.first().expect("subpath");
+        assert!(sub.closed, "the rectangle is closed");
+        assert!(sub.knots.len() >= 4, "rectangle knots {}", sub.knots.len());
+        assert!(
+            sub.knots.iter().any(|k| (k.anchor.x - 10.0).abs() < 1.0 && (k.anchor.y - 70.0).abs() < 1.5),
+            "a corner near the flipped rect, knots {:?}",
+            sub.knots
+        );
+        let stroke = shapes.iter().find(|s| s.stroke.is_some()).expect("a stroke");
+        let width = stroke.stroke.as_ref().unwrap().width;
+        assert!((width - 3.0).abs() < 0.2, "stroke width {width}");
+        assert!(stroke.fill.is_none());
+        assert!(result.warnings.iter().any(|w| w.contains("editable path")), "{:?}", result.warnings);
+        let photocraft_doc::LayerContent::Group(group) = &result.document.layers[0].content else { panic!("page group") };
+        assert!(matches!(group.children[0].content, photocraft_doc::LayerContent::Raster(_)), "the preview stays under the paths");
+    }
+
+    #[test]
+    fn an_even_odd_hole_stays_one_path_and_an_empty_page_is_only_a_preview() {
+        let holed = one_page("0 0 1 rg 10 10 80 60 re 30 30 20 20 re f*");
+        let options = crate::ImportOptions { pdf_dpi: 72.0, ..crate::ImportOptions::default() };
+        let result = import("hole.pdf", &holed, &options, &Interrupt::NONE).expect("import");
+        let shapes = shape_layers(&result.document);
+        assert_eq!(shapes.len(), 1, "the hole is one path, not two shapes");
+        assert_eq!(shapes[0].path.fill_rule, photocraft_doc::FillRule::EvenOdd);
+        assert_eq!(shapes[0].path.subpaths.len(), 2);
+        assert!(shapes[0].path.subpaths.iter().all(|s| s.closed));
+
+        let blank = one_page("q Q");
+        let result = import("blank.pdf", &blank, &options, &Interrupt::NONE).expect("import");
+        assert!(shape_layers(&result.document).is_empty());
+        assert!(result.warnings.iter().any(|w| w.contains("no editable vector")), "{:?}", result.warnings);
     }
 }

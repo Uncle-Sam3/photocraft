@@ -59,8 +59,8 @@ A seleção direta, converter ponto e acrescentar ou apagar âncora já existiam
 
 ## O que esta entrega não faz
 
-- PDF continua a ser importado como páginas rasterizadas. O leitor usado está compilado só com rasterização; extrair vetores e texto editáveis exigiria o dispositivo `interpret`, que não está ligado aqui. Um PDF digitalizado não volta a ser vetor.
-- CDR (CorelDRAW) não é lido. Não há `libcdr`, LibreOffice nem outro conversor instalado, e não foi adicionada biblioteca C++ nem código proprietário. Sem isso, um CDR não é aberto como curvas.
+- PDF: cada página continua a ter uma camada de pré-visualização raster (`Page N preview`). Por cima dela ficam caminhos editáveis quando o ficheiro os desenha: preenchimento, traço e contornos de glifos cujo tipo embutido o leitor consegue ler. Um furo em regra par-ímpar fica no mesmo caminho. Limites, ditos também nos avisos da importação: no máximo 1500 caminhos por página e 4096 nós por caminho; imagens, padrões, máscaras suaves, glifos Type 3 e recortes ficam só na pré-visualização; anotações não viram caminhos; as 14 fontes padrão (Helvetica, Times, Courier, Symbol, ZapfDingbats) não são substituídas nesta compilação, por isso esse texto fica na pré-visualização. Uma página só com imagem, ou um PDF digitalizado, não ganha vetores inventados.
+- CDR (CorelDRAW) não é lido. O `libcdr` 0.1.7 do Ubuntu é MPL-2.0. Essa licença não está na lista permitida do projeto (ISC, MIT, BSD-2-Clause, BSD-3-Clause, Apache-2.0, OFL-1.1, Ubuntu-font-1.0, Bitstream-Vera, CC0-1.0, CC-BY-4.0, CC-BY-SA-4.0, LicenseRef-Public-Domain), e a lista não pode ser alargada neste repositório. Por isso o conversor não foi ligado nem copiado para a aplicação. Não foi aberto nenhum ficheiro CDR.
 - A pré-visualização 3D não tem o ambiente completo do CS6: sem chão, sem várias luzes na interface, sem Substance, sem pintura 3D na malha, sem dobra, torção, afunilamento ou inflar. Há uma luz infinita e luz ambiente.
 - Efeitos de camada (sombra, etc.) continuam a usar o contorno 2D da forma, não a silhueta já extrudada.
 - Não há afirmação de paridade numérica com o Photoshop.

@@ -66,6 +66,8 @@ pub mod pattern_map;
 mod pcraft_cache;
 pub mod pdf;
 mod pdf_import;
+#[cfg(not(target_arch = "wasm32"))]
+mod pdf_vectors;
 mod pdn;
 pub use pcraft_cache::PcraftExportCache;
 pub mod pixels;

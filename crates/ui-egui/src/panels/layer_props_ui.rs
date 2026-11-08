@@ -198,6 +198,9 @@ const LINK_W: f32 = 20.0;
 /// sections (Character/Paragraph/Type Options for type, Appearance/Shape for shapes), then Quick
 /// Actions, all with the same collapsible headers (#155).
 pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
+    // Above Transform: the dock's default split hides a section that starts under the
+    // transform fields, and the extrusion controls are the reason this panel is open.
+    super::extrude_ui::show(app, ui, layer);
     let mut run: Vec<(String, Value)> = Vec::new();
     if let Some(s) = layer.surface() {
         let bb = frame(layer, app.layer_frame_bounds(layer, s));
@@ -249,7 +252,6 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
             app.ui.status_error = true;
         }
     }
-    super::extrude_ui::show(app, ui, layer);
     match &layer.content {
         LayerContent::Text(_) => crate::type_tool::type_properties(app, ui),
         LayerContent::Shape(_) => {
