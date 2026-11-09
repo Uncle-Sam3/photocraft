@@ -30,6 +30,11 @@ pub(crate) type CmykPicks = Vec<([f32; 3], [f32; 4])>;
 
 /// Explicit choices override temporary pen and held-key tools, even when selecting the same tool.
 pub(crate) fn select(app: &mut PhotocraftApp, tool: Tool) {
+    if !crate::chrome_edit::editing(app) && crate::chrome_edit::tool_blocked(app, tool) {
+        app.ui.status = photocraft_engine::prefs::FeatureGates::NOTE.into();
+        app.ui.status_error = true;
+        return;
+    }
     app.stylus.tool_before_eraser = None;
     app.ui.spring = None;
     if app.ui.tool == Tool::Frame && tool != Tool::Frame {

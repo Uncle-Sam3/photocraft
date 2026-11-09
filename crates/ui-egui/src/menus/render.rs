@@ -60,7 +60,11 @@ pub(super) fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: u
             let mnemonic = mnemonics.get(next_row).copied().flatten();
             next_row += 1;
             // Checked, unchecked and plain rows share one checkmark column (#5705).
-            let text = crate::menu_keys::menu_row_text(ui, it.checked == Some(true), &label, mnemonic.filter(|_| nav.underline));
+            let marked = ui.ctx().data(|d| d.get_temp::<crate::chrome_edit::ChromeDraft>(crate::chrome_edit::draft_id())).is_some_and(|draft| {
+                let menu: Vec<&str> = it.path.iter().map(String::as_str).collect();
+                draft.command_marked(&it.id, &menu)
+            });
+            let text = crate::menu_keys::menu_row_text(ui, it.checked == Some(true) || marked, &label, mnemonic.filter(|_| nav.underline));
             let mut b = egui::Button::new(text);
             if let Some(tint) = it.color.as_deref().and_then(menu_tint) {
                 b = b.fill(tint.gamma_multiply(0.55));
@@ -97,13 +101,22 @@ pub(super) fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: u
             let mnemonic = mnemonics.get(next_row).copied().flatten();
             let shown = shown_labels.get(next_row).cloned().unwrap_or_else(|| crate::i18n::tr(lang, name).to_string());
             next_row += 1;
-            let title = crate::menu_keys::menu_row_text(ui, false, &shown, mnemonic.filter(|_| nav.underline));
+            let gate = it.path[..=depth].join("/");
+            let menu_on = ui.ctx().data(|d| d.get_temp::<crate::chrome_edit::ChromeDraft>(crate::chrome_edit::draft_id())).is_some_and(|draft| {
+                draft.menus.iter().any(|m| m == &gate || gate.starts_with(&format!("{m}/")))
+            });
+            let title = crate::menu_keys::menu_row_text(ui, menu_on, &shown, mnemonic.filter(|_| nav.underline));
             ui.add_enabled_ui(enabled, |ui| {
                 nav.row(ui, depth - 1, enabled, None, mnemonic, |ui, nav| {
                     let (response, inner) = submenu_row(ui, title, |ui| render_level(ui, &child, depth + 1, clicked, nav));
                     if inner.is_some() {
                         // Where the submenu hangs from, to keep it below the menu bar (#319).
                         nav.set_anchor(depth, response.rect);
+                    }
+                    // A click on the submenu name marks that group. It does not run a command.
+                    let editing = ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::unique("chrome-editing"))).unwrap_or(false);
+                    if editing && response.clicked() {
+                        *clicked = Some(format!("menu:{gate}"));
                     }
                     (response, ())
                 });

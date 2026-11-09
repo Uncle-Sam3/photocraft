@@ -3,6 +3,11 @@ use super::items::MenuItem;
 use super::{DOCUMENT_ITEM, PhotocraftApp, Value};
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
+    // A marked command stays clickable while Personalizar is open, so it can be turned back on.
+    // Once OK has stored the choice, the shortcut and the menu both stop here.
+    if !crate::chrome_edit::editing(app) && crate::chrome_edit::blocked(app, id).is_some() {
+        return false;
+    }
     if id == "layer.selectUnderCursor" {
         return app.session.active().is_some() && app.drag.is_none() && app.brush_resize.is_none();
     }

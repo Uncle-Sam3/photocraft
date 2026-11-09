@@ -919,7 +919,16 @@ fn select_tool_by_key(app: &mut PhotocraftApp, ctx: &egui::Context, pressed: &im
         let cycle_shift = shift_switch && ctx.input_mut(|i| i.consume_key(Modifiers::SHIFT, k));
         if cycle_shift || pressed(k) {
             let before = app.ui.tool;
-            let mut group: Vec<Tool> = Tool::ALL.iter().copied().filter(|x| x.key() == t.key() && crate::tool_shortcuts::uses_default(app, *x)).collect();
+            let mut group: Vec<Tool> = Tool::ALL
+                .iter()
+                .copied()
+                .filter(|x| x.key() == t.key() && crate::tool_shortcuts::uses_default(app, *x) && !crate::chrome_edit::tool_blocked(app, *x))
+                .collect();
+            if group.is_empty() {
+                app.ui.status = photocraft_engine::prefs::FeatureGates::NOTE.into();
+                app.ui.status_error = true;
+                return true;
+            }
             // Shift+key (the cycle and the fallback to the group's first tool) uses the toolbar
             // flyout's order; plain keys keep the `Tool::ALL` order.
             if cycle_shift {

@@ -11,7 +11,14 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
     // Built only while a menu is open: every item's enabled/checked state scales with the
     // document (layer lookups), which cost milliseconds per frame on large layouts (#125). While
     // one stays open, the items are reused until what they depend on changes.
-    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique("chrome-editing"), app.chrome_edit.is_some()));
+    ui.ctx().data_mut(|d| {
+        d.insert_temp(egui::Id::unique("chrome-editing"), app.chrome_edit.is_some());
+        if let Some(edit) = &app.chrome_edit {
+            d.insert_temp(crate::chrome_edit::draft_id(), edit.clone());
+        } else {
+            d.remove::<crate::chrome_edit::ChromeDraft>(crate::chrome_edit::draft_id());
+        }
+    });
     let kept = std::cell::Cell::new(app.menu_cache.take());
     let built: std::cell::OnceCell<ItemCache> = std::cell::OnceCell::new();
     let app_ref: &PhotocraftApp = app;
