@@ -66,7 +66,7 @@ fn fill_path(s: &mut Session, p: &Value) -> Result<Value> {
         let map = |q: Point| inv.apply(q);
         let mut path = source.clone();
         for k in path.subpaths.iter_mut().flat_map(|s| s.knots.iter_mut()) {
-            *k = Knot { anchor: map(k.anchor), in_ctrl: map(k.in_ctrl), out_ctrl: map(k.out_ctrl), smooth: k.smooth };
+            *k = Knot { anchor: map(k.anchor), in_ctrl: map(k.in_ctrl), out_ctrl: map(k.out_ctrl), ..*k };
         }
         let vertical = t.orientation == photocraft_doc::text::Orientation::Vertical;
         if photocraft_text::area::AreaShape::new(&path, vertical).is_none() {

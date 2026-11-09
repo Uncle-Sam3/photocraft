@@ -6,7 +6,7 @@ use photocraft_doc::{
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
 
-use super::{build_mesh, render};
+use super::{Coverage, build_mesh, render, render_coverage, unproject_source_point};
 
 fn rect_path(x0: f64, y0: f64, x1: f64, y1: f64) -> Path {
     Path::new(vec![Subpath::polygon(&[(x0, y0), (x1, y0), (x1, y1), (x0, y1)])])
@@ -176,6 +176,49 @@ fn count_colours(surface: &Surface, rect: Rect) -> (usize, usize) {
         }
     }
     (blue, red)
+}
+
+#[test]
+fn a_diagonal_edge_has_partial_coverage_and_the_drag_preview_is_the_centre_sample() {
+    let mut ext = unlit(Extrusion3d::new(rect_path(30.0, 40.0, 180.0, 70.0), ExtrusionOrigin::Shape, [0.72, 0.45, 0.18, 1.0]));
+    ext.depth = 28.0;
+    ext.pose.rot_y = 58.0;
+    ext.pose.rot_x = -24.0;
+    let canvas = Rect::new(0, 0, 260, 180);
+    let partial = |surface: &Surface| {
+        let mut n = 0;
+        for y in 0..180 {
+            for x in 0..260 {
+                let a = surface.rgba(x, y)[3];
+                if a > 0.08 && a < 0.92 {
+                    n += 1;
+                }
+            }
+        }
+        n
+    };
+    let t0 = std::time::Instant::now();
+    let center = render_coverage(&ext, canvas, PixelFormat::RGBA8, Coverage::Center).unwrap();
+    let center_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    let t1 = std::time::Instant::now();
+    let grid = render_coverage(&ext, canvas, PixelFormat::RGBA8, Coverage::Grid4).unwrap();
+    let grid_ms = t1.elapsed().as_secs_f64() * 1000.0;
+    let hard = partial(&center);
+    let soft = partial(&grid);
+    let big = Rect::new(0, 0, 900, 700);
+    let tb = std::time::Instant::now();
+    let _ = render_coverage(&ext, big, PixelFormat::RGBA8, Coverage::Center).unwrap();
+    let big_center = tb.elapsed().as_secs_f64() * 1000.0;
+    let tb = std::time::Instant::now();
+    let _ = render_coverage(&ext, big, PixelFormat::RGBA8, Coverage::Grid4).unwrap();
+    let big_grid = tb.elapsed().as_secs_f64() * 1000.0;
+    eprintln!("extrude raster 260x180 rotY=58 center {center_ms:.2} ms partial {hard}; grid4 {grid_ms:.2} ms partial {soft}; 900x700 center {big_center:.2} ms grid4 {big_grid:.2} ms");
+    assert!(soft > hard + 8, "coverage AA should add edge pixels: center {hard}, grid {soft}");
+    let back = unproject_source_point(&ext, 100.0, 80.0);
+    assert!(back.is_some(), "a front-facing pose still has a source point");
+    ext.pose.rot_y = 90.0;
+    ext.pose.rot_x = 0.0;
+    assert!(unproject_source_point(&ext, 100.0, 80.0).is_none(), "edge-on the source plane has no node position");
 }
 
 fn side_gradient_counts(surface: &Surface) -> (usize, usize) {

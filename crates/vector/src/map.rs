@@ -23,7 +23,7 @@ pub fn map_points(path: &Path, f: impl Fn(Point) -> Point) -> Path {
 /// Sends every anchor and control point of `s` through `f`, in place.
 fn map_knots(s: &mut Subpath, f: &impl Fn(Point) -> Point) {
     for k in &mut s.knots {
-        *k = Knot { anchor: f(k.anchor), in_ctrl: f(k.in_ctrl), out_ctrl: f(k.out_ctrl), smooth: k.smooth };
+        *k = Knot { anchor: f(k.anchor), in_ctrl: f(k.in_ctrl), out_ctrl: f(k.out_ctrl), ..*k };
     }
 }
 
@@ -70,11 +70,11 @@ fn map_subpath(s: &Subpath, f: &impl Fn(Point) -> Point, tol: f64, depth: u32) -
         let in_ctrl = incoming.and_then(|p| p.last()).map_or_else(|| f(k.in_ctrl), |p| p[2]);
         let outgoing = pieces.get(i);
         let out_ctrl = outgoing.and_then(|p| p.first()).map_or_else(|| f(k.out_ctrl), |p| p[1]);
-        knots.push(Knot { anchor: f(k.anchor), in_ctrl, out_ctrl, smooth: k.smooth });
+        knots.push(Knot { anchor: f(k.anchor), in_ctrl, out_ctrl, smooth: k.smooth , corner_radius: k.corner_radius, corner_chamfer: k.corner_chamfer});
         // The anchors the split added inside segment i: smooth, as the curve runs through them.
         if let Some(p) = outgoing {
             for w in p.windows(2) {
-                knots.push(Knot { anchor: w[1][0], in_ctrl: w[0][2], out_ctrl: w[1][1], smooth: true });
+                knots.push(Knot { anchor: w[1][0], in_ctrl: w[0][2], out_ctrl: w[1][1], smooth: true , corner_radius: 0.0, corner_chamfer: false});
             }
         }
     }

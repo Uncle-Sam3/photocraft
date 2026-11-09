@@ -52,6 +52,7 @@ impl PhotocraftApp {
             self.fps = self.fps * 0.9 + (1.0 / dt).min(240.0) * 0.1;
         }
         self.last_frame_time = now;
+        crate::chrome_edit::enforce(self);
         self.sync_views();
         crate::memory_warning::tick(self, now);
         crate::type_font_preview::follow_hover(self, ctx);

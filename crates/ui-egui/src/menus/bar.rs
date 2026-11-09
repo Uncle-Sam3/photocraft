@@ -11,6 +11,7 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
     // Built only while a menu is open: every item's enabled/checked state scales with the
     // document (layer lookups), which cost milliseconds per frame on large layouts (#125). While
     // one stays open, the items are reused until what they depend on changes.
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique("chrome-editing"), app.chrome_edit.is_some()));
     let kept = std::cell::Cell::new(app.menu_cache.take());
     let built: std::cell::OnceCell<ItemCache> = std::cell::OnceCell::new();
     let app_ref: &PhotocraftApp = app;
@@ -18,6 +19,7 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
     let mut edge = if rtl { ui.cursor().right() } else { ui.cursor().left() };
     let lang = crate::i18n::current();
     let mut clicked: Option<String> = None;
+    let mut mark_menus: Vec<String> = Vec::new();
     let t = crate::theme::Tokens::get(ui.ctx());
     let mut nav = crate::menu_nav::Nav::load(ui.ctx());
     // The keyboard on the bar (#4988): Alt / F10 focus, Alt+letter, mnemonics.
@@ -43,6 +45,9 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
             nav.bar_bottom = Some(ui.max_rect().bottom());
             let mut buttons = Vec::with_capacity(TOP_MENUS.len());
             for (k, top) in TOP_MENUS.iter().enumerate() {
+                if app_ref.chrome_edit.is_none() && app_ref.session.prefs().features.menus.iter().any(|m| m == top) {
+                    continue;
+                }
                 // egui's menu_button toggles on release; these titles open on the press (one
                 // gesture can press, drag to an item and release), so each drives its popup.
                 // The title the keyboard is on (Alt / F10) is lit like a hovered one.
@@ -52,11 +57,19 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
                 } else {
                     egui::RichText::new(top_labels[k].as_str()).color(t.text_dim).into()
                 };
+                let label = if crate::chrome_edit::editing(app_ref) && crate::chrome_edit::top_marked(app_ref, top) {
+                    egui::RichText::new(format!("✓ {}", top_labels[k])).color(t.text).into()
+                } else {
+                    label
+                };
                 let mut button = egui::Button::new(label);
                 if focused {
                     button = button.fill(ui.visuals().widgets.hovered.weak_bg_fill);
                 }
                 let title = ui.add(button);
+                if crate::chrome_edit::editing(app_ref) && title.secondary_clicked() {
+                    mark_menus.push((*top).to_string());
+                }
                 // The bar's close behaviour and style, as a menu (not bar) config so submenus inside
                 // render as submenus.
                 let bar = egui::containers::menu::MenuConfig::find(ui);
@@ -132,7 +145,13 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
     if ui.input(|i| i.pointer.primary_released() || !i.pointer.primary_down()) {
         ui.ctx().data_mut(|d| d.remove::<bool>(press_gesture_id()));
     }
+    for top in mark_menus {
+        crate::chrome_edit::take_menu_toggle(app, &format!("menu:{top}"));
+    }
     if let Some(id) = clicked {
+        if crate::chrome_edit::editing(app) {
+            crate::chrome_edit::take_menu_toggle(app, &id);
+        } else {
         let ctx = ui.ctx().clone();
         let alt = ctx.input(|i| i.modifiers.alt);
         // ⌥ while choosing an Image › Adjustments item opens it at its last settings (#8900).
@@ -149,6 +168,7 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
         if let Err(e) = r {
             app.ui.status = e;
             app.ui.status_error = true;
+        }
         }
     }
     edge

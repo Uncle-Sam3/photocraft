@@ -51,7 +51,7 @@ pub fn path_from_records(p: &PathData, w: u32, h: u32) -> Path {
         .map(|s| Subpath {
             closed: s.closed,
             op: op_from_psd(s.operation),
-            knots: s.knots.iter().map(|k| Knot { anchor: pt(k.anchor), in_ctrl: pt(k.pre), out_ctrl: pt(k.post), smooth: k.linked }).collect(),
+            knots: s.knots.iter().map(|k| Knot { anchor: pt(k.anchor), in_ctrl: pt(k.pre), out_ctrl: pt(k.post), smooth: k.linked, corner_radius: 0.0, corner_chamfer: false }).collect(),
         })
         .collect();
     Path { subpaths, fill_rule: FillRule::NonZero, inverted: p.initial_fill() }

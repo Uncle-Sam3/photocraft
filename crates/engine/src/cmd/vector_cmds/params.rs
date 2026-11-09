@@ -109,6 +109,8 @@ pub fn parse_path(v: &Value) -> std::result::Result<Path, String> {
                     in_ctrl: get(&["in", "inCtrl", "in_ctrl"]).unwrap_or(a),
                     out_ctrl: get(&["out", "outCtrl", "out_ctrl"]).unwrap_or(a),
                     smooth: k.get("smooth").and_then(Value::as_bool).unwrap_or(false),
+                    corner_radius: k.get("cornerRadius").and_then(Value::as_f64).unwrap_or(0.0),
+                    corner_chamfer: k.get("cornerChamfer").and_then(Value::as_bool).unwrap_or(false),
                 }
             };
             knots.push(knot);
@@ -133,7 +135,14 @@ pub fn path_json(p: &Path) -> Value {
         "subpaths": p.subpaths.iter().map(|s| json!({
             "closed": s.closed,
             "op": op_name(s.op),
-            "knots": s.knots.iter().map(|k| json!({ "anchor": a(k.anchor), "in": a(k.in_ctrl), "out": a(k.out_ctrl), "smooth": k.smooth })).collect::<Vec<_>>(),
+            "knots": s.knots.iter().map(|k| {
+                let mut knot = json!({ "anchor": a(k.anchor), "in": a(k.in_ctrl), "out": a(k.out_ctrl), "smooth": k.smooth });
+                if k.corner_radius > 0.0 {
+                    knot["cornerRadius"] = json!(k.corner_radius);
+                    knot["cornerChamfer"] = json!(k.corner_chamfer);
+                }
+                knot
+            }).collect::<Vec<_>>(),
         })).collect::<Vec<_>>(),
         "fillRule": if p.fill_rule == FillRule::EvenOdd { "evenodd" } else { "nonzero" },
         "inverted": p.inverted,

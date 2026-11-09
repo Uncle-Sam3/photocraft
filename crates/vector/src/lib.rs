@@ -20,6 +20,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod corners;
 pub mod edit;
 pub mod extrude;
 pub mod feather;
@@ -589,17 +590,18 @@ impl CompiledShape {
     /// [`CompiledShape::new`] with the feather computed over `coverage` while gradients still lay
     /// out in `gradient_frame`: measuring a shape beyond the canvas it is drawn in.
     pub fn with_frames(shape: &ShapeLayer, tol: f64, coverage: Rect, gradient_frame: Rect) -> Self {
-        let pb = shape.path.control_bounds().unwrap_or((0.0, 0.0, 0.0, 0.0));
+        let drawn = corners::effective(&shape.path);
+        let pb = drawn.control_bounds().unwrap_or((0.0, 0.0, 0.0, 0.0));
         let g = gradient_frame;
         let cb = (f64::from(g.x0), f64::from(g.y0), f64::from(g.x1), f64::from(g.y1));
-        let area = fill_rasterizer(&shape.path, tol);
+        let area = fill_rasterizer(&drawn, tol);
         let mut bounds = None;
         let fill = shape.fill.as_ref().map(|f| {
             let coverage = FillCoverage::new(shape, &area, coverage);
             bounds = coverage.bounds();
             (coverage, Paint::from_fill(f, pb, cb))
         });
-        let all_closed = shape.path.subpaths.iter().all(|s| s.closed);
+        let all_closed = drawn.subpaths.iter().all(|s| s.closed);
         let mut align = None;
         let stroke = shape.stroke.as_ref().filter(|s| s.width > 0.0 && s.opacity > 0.0).map(|s| {
             let mut st = stroke_style(s);
@@ -608,7 +610,7 @@ impl CompiledShape {
                 st.width *= 2.0;
                 align = Some((area.clone(), s.align == StrokeAlign::Inside));
             }
-            let r = stroke_rasterizer(&shape.path, &st, tol);
+            let r = stroke_rasterizer(&drawn, &st, tol);
             let sb = r.pixel_bounds();
             bounds = match (bounds, sb) {
                 (Some(a), Some(b)) => Some(a.union(&b)),
@@ -616,7 +618,7 @@ impl CompiledShape {
             };
             (r, Paint::from_fill(&s.paint, pb, cb), s.opacity.clamp(0.0, 1.0))
         });
-        if shape.path.inverted && shape.fill.is_some() {
+        if drawn.inverted && shape.fill.is_some() {
             bounds = Some(Rect::new(i32::MIN / 4, i32::MIN / 4, i32::MAX / 4, i32::MAX / 4));
         }
         CompiledShape { fill, stroke, align, bounds }

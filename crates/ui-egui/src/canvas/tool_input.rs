@@ -172,6 +172,9 @@ fn filter_event_before_tool(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::
     if crate::corner_radius::pointer(app, raw, mods) {
         return None;
     }
+    if crate::tools::live_corners::pointer(app, raw, mods) {
+        return None;
+    }
     // The box round several selected shape layers: its handles scale them (Path Selection and the
     // shape tools).
     if crate::shape_bounds_box::pointer(app, raw, mods) {

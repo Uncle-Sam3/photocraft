@@ -21,7 +21,7 @@ use mesh::Solid;
 mod tests;
 
 pub use mesh::Mesh;
-pub use render::project_local;
+pub use render::{Coverage, project_local};
 
 /// The source outline point `(x, y)` on the front of the solid, in document pixels,
 /// using the same pose and camera as the mesh. The editable path stays in the document
@@ -51,9 +51,46 @@ pub fn project_source_path(ext: &Extrusion3d, path: &Path) -> Path {
 }
 
 /// Render `ext` into a sparse surface the size of `canvas` (only the projected pixels are
-/// stored). The result is straight RGBA in `format`.
+/// stored). The result is straight RGBA in `format`, with four-sample edge coverage.
 pub fn render(ext: &Extrusion3d, canvas: Rect, format: PixelFormat) -> Result<Surface, String> {
-    render::render_surface(ext, canvas, format)
+    render_coverage(ext, canvas, format, Coverage::Grid4)
+}
+
+/// [`render`] at `coverage`. [`Coverage::Center`] is the one-sample picture used while a drag
+/// is moving; [`Coverage::Grid4`] is the picture kept when the drag ends.
+pub fn render_coverage(ext: &Extrusion3d, canvas: Rect, format: PixelFormat, coverage: Coverage) -> Result<Surface, String> {
+    render::render_surface(ext, canvas, format, coverage)
+}
+
+/// The source-plane point that lands on document pixel `(sx, sy)` on the front of the solid.
+/// `None` when that plane is edge-on, so a node drag has no unique place to go.
+pub fn unproject_source_point(ext: &Extrusion3d, sx: f64, sy: f64) -> Option<[f64; 2]> {
+    let (x0, y0, x1, y1) = ext.path.control_bounds()?;
+    let mut x = (x0 + x1) * 0.5;
+    let mut y = (y0 + y1) * 0.5;
+    for _ in 0..10 {
+        let p = project_source_point(ext, x, y)?;
+        let px = project_source_point(ext, x + 0.5, y)?;
+        let py = project_source_point(ext, x, y + 0.5)?;
+        let jx = [f64::from(px[0] - p[0]) / 0.5, f64::from(px[1] - p[1]) / 0.5];
+        let jy = [f64::from(py[0] - p[0]) / 0.5, f64::from(py[1] - p[1]) / 0.5];
+        let det = jx[0] * jy[1] - jx[1] * jy[0];
+        if !det.is_finite() || det.abs() < 1e-3 {
+            return None;
+        }
+        let (ex, ey) = (sx - f64::from(p[0]), sy - f64::from(p[1]));
+        let dx = (ex * jy[1] - ey * jy[0]) / det;
+        let dy = (jx[0] * ey - jx[1] * ex) / det;
+        if !dx.is_finite() || !dy.is_finite() {
+            return None;
+        }
+        x += dx;
+        y += dy;
+        if dx.hypot(dy) < 1e-3 {
+            break;
+        }
+    }
+    (x.is_finite() && y.is_finite()).then_some([x, y])
 }
 
 pub(crate) fn build_mesh(ext: &Extrusion3d) -> Result<Mesh, String> {
@@ -89,7 +126,8 @@ fn solids_of(path: &Path) -> Result<Vec<Solid>, String> {
     if path.subpaths.iter().enumerate().any(|(i, _)| matches!(path.effective_op(i), PathOp::Intersect | PathOp::Exclude)) {
         return Err("Intersect and Exclude outlines have to be merged (path.mergeShapeComponents) before extrusion".into());
     }
-    let flat = flatten_path(path, 0.35);
+    let path = crate::corners::effective(path);
+    let flat = flatten_path(&path, 0.35);
     let mut solids = Vec::new();
     for (i, sub) in path.subpaths.iter().enumerate() {
         if !sub.closed {

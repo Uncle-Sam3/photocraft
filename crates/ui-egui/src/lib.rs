@@ -45,6 +45,7 @@ pub mod levels_clipping;
 pub mod links;
 pub mod memory_warning;
 pub mod menu_catalog;
+pub mod chrome_edit;
 pub mod menus;
 pub mod monitor_status;
 pub mod notices;
@@ -396,6 +397,12 @@ pub struct PhotocraftApp {
     pub(crate) remove_trail: Option<stroke_trail::Trail>,
     /// The open menus' items, reused between frames (`menus::ItemCache`).
     pub(crate) menu_cache: Option<menus::ItemCache>,
+    /// Personalizar interface, while the user is marking tools and commands. Not saved
+    /// in the document and not an undo step.
+    pub chrome_edit: Option<chrome_edit::ChromeDraft>,
+    /// A live vector-corner drag (round or chamfer). Not a 3D bevel and not an undo step
+    /// until `path.setCorners` records it.
+    pub(crate) corner_widget: Option<tools::live_corners::Drag>,
     /// Move tool drag shown live (`move_ui`).
     pub(crate) move_preview: Option<move_ui::MovePreview>,
     /// Move tool › Show Highlight on Rollover: the last hover answer (`move_hover`).

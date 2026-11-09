@@ -99,6 +99,9 @@ impl Session {
     /// may run.
     pub(crate) fn admit(&mut self, id: &str, spec: &commands::CommandSpec, params: &Value) -> Result<Value> {
         let run_params = channel_cmds::inject_target(self, id, commands::inject_kind(id, params.clone()));
+        if self.prefs().features.blocks_command(id, spec.menu) {
+            return Err(EngineError::Disabled(id.into(), crate::prefs::FeatureGates::NOTE.into()));
+        }
         if let Some(why) = color_channels::refusal(self, id, &run_params) {
             return Err(EngineError::Disabled(id.into(), why));
         }
@@ -135,6 +138,9 @@ impl Session {
     /// [`Self::disabled_reason`] for a call with `params`.
     pub fn disabled_reason_with(&self, id: &str, params: &Value) -> Option<String> {
         let Some(s) = commands::find(id) else { return Some(EngineError::UnknownCommand(id.into()).to_string()) };
+        if self.prefs().features.blocks_command(id, s.menu) {
+            return Some(crate::prefs::FeatureGates::NOTE.into());
+        }
         self.precondition(s, &channel_cmds::inject_target(self, id, params.clone())).err().or_else(|| self.job_conflict(id, s.journal))
     }
 

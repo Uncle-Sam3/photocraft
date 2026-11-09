@@ -276,6 +276,37 @@ fn set_operation(s: &mut Session, p: &Value) -> Result<Value> {
     })
 }
 
+fn set_corners(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "path.setCorners";
+    let corners: Vec<[usize; 2]> = p
+        .get("corners")
+        .and_then(Value::as_array)
+        .filter(|a| !a.is_empty())
+        .ok_or_else(|| bad(CMD, "`corners` must list [subpath, knot] pairs"))?
+        .iter()
+        .map(|v| {
+            let pair = v.as_array().ok_or_else(|| bad(CMD, "each corner is [subpath, knot]"))?;
+            let read = |i: usize| pair.get(i).and_then(Value::as_u64).and_then(|n| usize::try_from(n).ok()).ok_or_else(|| bad(CMD, "each corner is [subpath, knot]"));
+            Ok([read(0)?, read(1)?])
+        })
+        .collect::<Result<_>>()?;
+    let radius = p.get("radius").and_then(Value::as_f64).filter(|n| n.is_finite() && *n >= 0.0 && *n <= 100_000.0).ok_or_else(|| bad(CMD, "`radius` must be from 0 to 100000 px"))?;
+    let chamfer = p.get("chamfer").and_then(Value::as_bool).unwrap_or(false);
+    edit_path(s, CMD, p, "Vector Corner", |path| {
+        for [s_i, k_i] in &corners {
+            let limit = photocraft_vector::corners::max_radius(path, *s_i, *k_i).ok_or_else(|| "that knot is not a sharp corner".to_string())?;
+            let knot = path
+                .subpaths
+                .get_mut(*s_i)
+                .and_then(|sp| sp.knots.get_mut(*k_i))
+                .ok_or_else(|| format!("no knot {s_i},{k_i}"))?;
+            knot.corner_radius = radius.min(limit);
+            knot.corner_chamfer = chamfer && knot.corner_radius > 0.0;
+        }
+        Ok(())
+    })
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     const TARGET: &str = r#""name":str|"work"|"layer"="work","layer":id? (with "layer": a shape layer's path, a vector mask, or else type on a path's Type Path),"typePath":bool=false (with "layer": the Type Path even when the type layer has a vector mask)"#;
     let spec = |id: &'static str, label: &'static str, params: String, run: fn(&mut Session, &Value) -> Result<Value>| CommandSpec {
@@ -290,6 +321,12 @@ pub fn specs() -> Vec<CommandSpec> {
     };
     vec![
         spec("path.moveAnchors", "Drag Anchor Points", r#""anchors":[[subpath,knot],…],"move":[dx,dy],"curvature":bool=false (anchors move with their handles; Direct Selection drag. curvature = the Curvature Pen's drag: every smooth knot of the touched subpaths gets its handles recomputed so the curve flows through the anchors)"#.into(), move_anchors),
+        spec(
+            "path.setCorners",
+            "Set Vector Corner",
+            r#""corners":[[subpath,knot],…],"radius":px>=0,"chamfer":bool=false (a sharp corner's live fillet; chamfer is a straight cut. Not a 3D bevel. The radius is clamped to the adjacent edges)"#.into(),
+            set_corners,
+        ),
         spec(
             "path.moveHandle",
             "Drag Direction Point",
@@ -790,5 +827,21 @@ mod tests {
             assert!(s.execute(id, p.clone()).is_err(), "{id} {p}");
         }
         assert_eq!(s.active().unwrap().history.entries().len(), steps);
+    }
+
+    #[test]
+    fn a_vector_corner_is_rounded_or_chamfered_and_undo_restores_the_sharp_knot() {
+        let mut s = session();
+        s.execute("path.set", json!({"path": square()})).unwrap();
+        s.execute("path.setCorners", json!({"corners": [[0, 0], [0, 1]], "radius": 12.0})).unwrap();
+        assert!((work(&s).subpaths[0].knots[0].corner_radius - 12.0).abs() < 1e-6);
+        s.execute("path.setCorners", json!({"corners": [[0, 0]], "radius": 8.0, "chamfer": true})).unwrap();
+        let knot = work(&s).subpaths[0].knots[0];
+        assert!(knot.corner_chamfer && (knot.corner_radius - 8.0).abs() < 1e-6);
+        s.execute("path.setCorners", json!({"corners": [[0, 0]], "radius": 100000.0})).unwrap();
+        assert!(work(&s).subpaths[0].knots[0].corner_radius < 40.0);
+        assert!(s.undo());
+        assert!((work(&s).subpaths[0].knots[0].corner_radius - 8.0).abs() < 1e-6);
+        assert!(s.execute("path.setCorners", json!({"corners": [[0, 0]], "radius": -1.0})).is_err());
     }
 }

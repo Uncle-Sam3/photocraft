@@ -149,6 +149,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         crate::direct_select::draw_overlay(app, painter, &to_scr, accent, paths);
         if paths {
             crate::anchor_tools::draw_hover(app, painter, &to_scr, accent, painter.ctx().input(|i| i.modifiers));
+            crate::tools::live_corners::draw(app, painter, &to_scr, accent);
         }
     } else if paths {
         // The shape's or vector mask's path stays visible as an outline with any tool. Path
@@ -179,7 +180,8 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
             if !transforming_this_shape {
                 // An extrusion is drawn posed. The blue contour is that same outline in the
                 // current view, not the flat source left behind on the document plane.
-                let shown = l.extrusion.as_deref().map(|ext| photocraft_vector::extrude::project_source_path(ext, &sh.path)).unwrap_or_else(|| sh.path.clone());
+                let geometry = photocraft_vector::corners::effective(&sh.path);
+                let shown = l.extrusion.as_deref().map(|ext| photocraft_vector::extrude::project_source_path(ext, &geometry)).unwrap_or(geometry);
                 draw_path(&shown, anchors);
             }
         }
@@ -202,7 +204,13 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
                 _ => None,
             }
             .unwrap_or(&path);
-            for k in app.ui.direct_selection.anchors.iter().filter_map(|[s, k]| path.subpaths.get(*s).and_then(|sp| sp.knots.get(*k))) {
+            let projected = if let crate::direct_select::PathRef::Layer(id) = r {
+                st.and_then(|s| s.doc.layer(photocraft_doc::LayerId(id))).and_then(|l| l.extrusion.as_deref().map(|ext| photocraft_vector::extrude::project_source_path(ext, path)))
+            } else {
+                None
+            };
+            let drawn = projected.as_ref().unwrap_or(path);
+            for k in app.ui.direct_selection.anchors.iter().filter_map(|[s, k]| drawn.subpaths.get(*s).and_then(|sp| sp.knots.get(*k))) {
                 draw_anchor(painter, to_scr([k.anchor.x, k.anchor.y]), true, accent);
             }
         }
@@ -211,6 +219,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
             crate::shape_bounds_box::draw(app, painter, &to_scr, accent);
         }
         crate::corner_radius::draw(app, painter, &to_scr, accent);
+        crate::tools::live_corners::draw(app, painter, &to_scr, accent);
     }
     // Pen path in progress, with handles of the last knot and a rubber band to the pointer. While
     // ⌘/Ctrl drags it, Direct Selection draws its preview instead.

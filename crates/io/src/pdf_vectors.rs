@@ -333,7 +333,7 @@ fn curve_to(sub: &mut Subpath, c1: Point, c2: Point, end: Point) -> Option<()> {
     if let Some(prev) = sub.knots.last_mut() {
         prev.out_ctrl = c1;
     }
-    sub.knots.push(Knot { anchor: end_knot.anchor, in_ctrl: c2, out_ctrl: end_knot.anchor, smooth: false });
+    sub.knots.push(Knot { anchor: end_knot.anchor, in_ctrl: c2, out_ctrl: end_knot.anchor, smooth: false , corner_radius: 0.0, corner_chamfer: false});
     Some(())
 }
 

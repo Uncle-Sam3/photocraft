@@ -123,7 +123,7 @@ pub fn parse(src: &str) -> std::result::Result<Path, String> {
                     if let Some(k) = s.knots.last_mut() {
                         k.out_ctrl = c1;
                     }
-                    s.knots.push(Knot { anchor: p, in_ctrl: c2, out_ctrl: p, smooth: false });
+                    s.knots.push(Knot { anchor: p, in_ctrl: c2, out_ctrl: p, smooth: false , corner_radius: 0.0, corner_chamfer: false});
                 }
             }
             "Z" => finish(&mut cur, &mut subs, true),

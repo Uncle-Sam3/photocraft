@@ -372,6 +372,22 @@ pub(crate) fn hit_target(app: &PhotocraftApp, p: [f64; 2], handles: bool) -> Opt
     })
 }
 
+/// Pointer positions are in the projected view. Node edits are stored on the flat source path.
+fn source_drag(app: &mut PhotocraftApp, target: PathRef, start: [f64; 2], end: [f64; 2]) -> ([f64; 2], [f64; 2]) {
+    let PathRef::Layer(id) = target else { return (start, end) };
+    let Some(ext) = app.session.active().and_then(|st| st.doc.layer(photocraft_doc::LayerId(id))).and_then(|l| l.extrusion.as_deref()) else {
+        return (start, end);
+    };
+    match (photocraft_vector::extrude::unproject_source_point(ext, start[0], start[1]), photocraft_vector::extrude::unproject_source_point(ext, end[0], end[1])) {
+        (Some(a), Some(b)) => (a, b),
+        _ => {
+            app.ui.status = "O plano do contorno está de perfil. Gire o sólido para editar os nós.".into();
+            app.ui.status_error = true;
+            (start, start)
+        }
+    }
+}
+
 fn retracted(k: &photocraft_doc::Knot, h: Handle) -> bool {
     let c = if h == Handle::In { k.in_ctrl } else { k.out_ctrl };
     (c.x - k.anchor.x).abs() < 1e-9 && (c.y - k.anchor.y).abs() < 1e-9
@@ -441,11 +457,21 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
             press(app, [x, y], mods, convert)
         }
         ToolEvent::Move { x, y, .. } => {
+            let snapshot = match &app.ui.direct_selection.drag {
+                Some(Drag::Edit { target, edit, start, .. }) => Some((*target, *start, edit.constrain(*start, [x, y], mods.shift))),
+                _ => None,
+            };
+            let planned = snapshot.map(|(target, start, pointer)| {
+                let (s0, s1) = source_drag(app, target, start, pointer);
+                (pointer, s0, s1)
+            });
             let ds = &mut app.ui.direct_selection;
             match &mut ds.drag {
-                Some(Drag::Edit { base, edit, start, end, preview, .. }) => {
-                    *end = edit.constrain(*start, [x, y], mods.shift);
-                    *preview = edit.preview(base, *start, *end);
+                Some(Drag::Edit { base, edit, end, preview, .. }) => {
+                    if let Some((pointer, s0, s1)) = planned {
+                        *end = pointer;
+                        *preview = edit.preview(base, s0, s1);
+                    }
                 }
                 Some(Drag::Marquee { end, .. }) => *end = [x, y],
                 None => return owns(tool),
@@ -455,6 +481,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
         ToolEvent::Up { x, y } => match app.ui.direct_selection.drag.take() {
             Some(Drag::Edit { target, base, edit, start, .. }) => {
                 let end = edit.constrain(start, [x, y], mods.shift);
+                let (start, end) = source_drag(app, target, start, end);
                 release(app, target, &base, &edit, start, end);
                 app.ui.direct_selection.coalesce = None;
                 true
@@ -752,12 +779,13 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, to_scr: &dyn F
         candidates(app)
     };
     for (r, path) in shown {
-        let path = match &ds.drag {
+        let source = match &ds.drag {
             Some(Drag::Edit { target, preview: Some(p), .. }) if *target == r => p.clone(),
             _ => path,
         };
-        let path = view_path(app, &r, &path);
-        crate::vector_ui::draw_outline(painter, &path, to_scr, accent);
+        let path = view_path(app, &r, &source);
+        let outline = view_path(app, &r, &photocraft_vector::corners::effective(&source));
+        crate::vector_ui::draw_outline(painter, &outline, to_scr, accent);
         let ours = ds.target.as_ref() == Some(&r);
         for &(k, h) in if ours { shown_handles(ds, &path) } else { Vec::new() }.iter() {
             if let Some(kn) = path.subpaths.get(k[0]).and_then(|s| s.knots.get(k[1])) {

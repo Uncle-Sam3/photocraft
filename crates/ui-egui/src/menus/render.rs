@@ -80,7 +80,10 @@ pub(super) fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: u
             });
             if hit {
                 *clicked = Some(it.id.clone());
-                ui.close();
+                let editing = ui.ctx().data(|d| d.get_temp::<bool>(egui::Id::unique("chrome-editing"))).unwrap_or(false);
+                if !editing {
+                    ui.close();
+                }
             }
             last_was_sep = false;
         } else if it.path.len() > depth {

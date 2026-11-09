@@ -78,6 +78,11 @@ fn selection(app: &PhotocraftApp) -> Option<(Vec<u64>, [f64; 4])> {
     for id in ids {
         let l = st.doc.layer(id)?;
         let LayerContent::Shape(sh) = &l.content else { return None };
+        // An extrusion is edited on its projected contour. This axis-aligned box is the
+        // flat path, and it is not the Move tool's box around the solid.
+        if l.extrusion.is_some() {
+            return None;
+        }
         let (x0, y0, x1, y1) = sh.path.control_bounds()?;
         rect = Some(rect.map_or([x0, y0, x1, y1], |r| [r[0].min(x0), r[1].min(y0), r[2].max(x1), r[3].max(y1)]));
         layers.push(l.id.0);

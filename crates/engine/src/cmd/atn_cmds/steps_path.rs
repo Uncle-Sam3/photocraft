@@ -59,7 +59,7 @@ fn knot(value: &D, budget: &mut usize) -> Option<Knot> {
     match (d.get("Fwd "), d.get("Bwd "), d.get("Smoo")) {
         (None, None, None) => Some(Knot::corner(anchor.x, anchor.y)),
         (Some(out), Some(input), Some(D::Boolean(smooth))) => {
-            Some(Knot { anchor, out_ctrl: point(out, budget)?, in_ctrl: point(input, budget)?, smooth: *smooth })
+            Some(Knot { anchor, out_ctrl: point(out, budget)?, in_ctrl: point(input, budget)?, smooth: *smooth , corner_radius: 0.0, corner_chamfer: false})
         }
         _ => None,
     }

@@ -46,8 +46,8 @@ pub fn rounded_rect(x: f64, y: f64, w: f64, h: f64, radii: [f64; 4]) -> Path {
             k.push(corner(start));
             return;
         }
-        k.push(Knot { anchor: Point::new(start.0, start.1), in_ctrl: Point::new(start.0, start.1), out_ctrl: Point::new(c_start.0, c_start.1), smooth: false });
-        k.push(Knot { anchor: Point::new(end.0, end.1), in_ctrl: Point::new(c_end.0, c_end.1), out_ctrl: Point::new(end.0, end.1), smooth: false });
+        k.push(Knot { anchor: Point::new(start.0, start.1), in_ctrl: Point::new(start.0, start.1), out_ctrl: Point::new(c_start.0, c_start.1), smooth: false , corner_radius: 0.0, corner_chamfer: false});
+        k.push(Knot { anchor: Point::new(end.0, end.1), in_ctrl: Point::new(c_end.0, c_end.1), out_ctrl: Point::new(end.0, end.1), smooth: false , corner_radius: 0.0, corner_chamfer: false});
     };
     // Each corner arc from the end of one edge to the start of the next (clockwise).
     push_arc(&mut k, (x1 - tr, y), (x1, y + tr), (x1 - tr + KAPPA * tr, y), (x1, y + tr - KAPPA * tr), tr);
@@ -197,8 +197,8 @@ pub fn round_corners(path: Path, r: f64) -> Path {
                     Point::new(a[0] + dx / l * h, a[1] + dy / l * h)
                 };
                 let (from, to) = (Point::new(f.from[0], f.from[1]), Point::new(f.to[0], f.to[1]));
-                knots.push(Knot { anchor: from, in_ctrl: from, out_ctrl: toward(f.from), smooth: false });
-                knots.push(Knot { anchor: to, in_ctrl: toward(f.to), out_ctrl: to, smooth: false });
+                knots.push(Knot { anchor: from, in_ctrl: from, out_ctrl: toward(f.from), smooth: false , corner_radius: 0.0, corner_chamfer: false});
+                knots.push(Knot { anchor: to, in_ctrl: toward(f.to), out_ctrl: to, smooth: false , corner_radius: 0.0, corner_chamfer: false});
             }
             Subpath { knots, ..sp }
         })

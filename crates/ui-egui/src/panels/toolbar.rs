@@ -153,7 +153,8 @@ fn more_slot_flyout(app: &mut PhotocraftApp, ui: &mut egui::Ui, button: &egui::R
 pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let (w1, bx, m) = if t.pro { (40.0, 30.0, 5i8) } else { (50.0, 36.0, 7i8) };
-    let sections = visible_sections(&app.session.prefs().toolbar.hidden);
+    let hidden = crate::chrome_edit::hidden_tools(app);
+    let sections = if crate::chrome_edit::editing(app) { visible_sections(&[]) } else { visible_sections(&hidden) };
     // Two columns when the header chevron asks for them; a column that doesn't fit scrolls.
     let double = app.ui.panels.toolbar_double;
     let w = if double { w1 + bx + 2.0 } else { w1 };
@@ -264,7 +265,11 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                     let prev_mod_id = key.with("click-mod");
                                     let prev_modified = ui.data(|d| d.get_temp::<bool>(prev_mod_id)).unwrap_or(false);
                                     let slot_click = resp.clicked() && ui.data(|d| d.get_temp::<egui::Id>(held_id)) != Some(key);
-                                    if slot_click {
+                                    if slot_click && crate::chrome_edit::editing(app) {
+                                        if let Some(edit) = app.chrome_edit.as_mut() {
+                                            edit.toggle_tool(&format!("{tool:?}"));
+                                        }
+                                    } else if slot_click {
                                         let pick = if slot.len() > 1 && alt {
                                             let from = if slot.contains(&app.ui.tool) { app.ui.tool } else { tool };
                                             next_slot_tool(slot, from)
@@ -277,7 +282,10 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                     // Modified clicks only cycle / select: a second rapid Alt-click, or a
                                     // plain click that egui pairs with a prior modified click, must not
                                     // count as Hand/Zoom double-click after cycling onto those tools.
-                                    let plain_double = resp.double_clicked() && !modified && !prev_modified;
+                                    let plain_double = resp.double_clicked() && !modified && !prev_modified && !crate::chrome_edit::editing(app);
+                                    if crate::chrome_edit::editing(app) && app.chrome_edit.as_ref().is_some_and(|edit| edit.tool_marked(tool)) {
+                                        ui.painter().circle_filled(resp.rect.right_top(), 5.0, t.accent);
+                                    }
                                     if plain_double && tool == Tool::Hand {
                                         crate::tool_memory::select(app, tool);
                                         // With no document open there is nothing to fit.
@@ -317,7 +325,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                             }
                                         });
                                     }
-                                    if slot.len() > 1 && long_press {
+                                    if slot.len() > 1 && long_press && !crate::chrome_edit::editing(app) {
                                         // Holding a tool button selects the tool it shows, as a click would (#4453).
                                         crate::tool_memory::select(app, tool);
                                         ui.ctx().request_repaint();

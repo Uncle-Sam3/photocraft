@@ -231,6 +231,12 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
     if !prefs.menus.hidden.is_empty() {
         items.retain(|i| !prefs.menus.is_hidden(&i.id));
     }
+    if app.chrome_edit.is_none() {
+        items.retain(|i| {
+            let menu: Vec<&str> = i.path.iter().map(String::as_str).collect();
+            !prefs.features.blocks_command(&i.id, &menu)
+        });
+    }
     if prefs.interface.show_menu_colors {
         for it in &mut items {
             it.color = prefs.menus.colors.get(&it.id).cloned();

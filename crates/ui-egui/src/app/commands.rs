@@ -53,6 +53,9 @@ impl PhotocraftApp {
         if !vector_ui::cancel_stale(self) {
             return Err(self.ui.status.clone());
         }
+        if let Some(why) = crate::chrome_edit::blocked(self, id) {
+            return Err(why);
+        }
         if matches!(id, "paint.setSymmetry" | "paint.symmetryFromPath" | "paint.symmetryDisable") {
             self.ui.symmetry_transform = None;
         }

@@ -1505,3 +1505,93 @@ fn marquee_drag_after_hiding_extras_restores_selection_visibility() {
     h.state_mut().run("edit.fill", json!({"color": "#22cc44"})).unwrap();
     assert!(!h.state().ui.view.extras, "painting an existing selection must preserve the user's hide choice");
 }
+
+/// Screen point on the red axis, and how far it is from the gizmo origin.
+/// `along` is a fraction of the drawn shaft (0 = centre disc, 0.5 = middle of the shaft).
+fn axis_point(h: &Harness<'static, PhotocraftApp>, along: f32) -> Result<(Pos2, Pos2, f32), String> {
+    let st = h.state().session.active().ok_or("no document")?;
+    let id = st.active_layer.ok_or("no active layer")?;
+    let ext = st.doc.layer(id).and_then(|l| l.extrusion.as_deref()).ok_or("the active layer has no extrusion")?.clone();
+    let origin = photocraft_vector::extrude::project_local(&ext, [0.0, 0.0, 0.0]).ok_or("origin did not project")?;
+    let tip = photocraft_vector::extrude::project_local(&ext, [36.0, 0.0, 0.0]).ok_or("axis tip did not project")?;
+    let xf = crate::canvas::ViewXform::active(h.state()).ok_or("no canvas view")?;
+    let o = xf.to_screen(origin[0], origin[1]);
+    let t = xf.to_screen(tip[0], tip[1]);
+    let d = t - o;
+    let len = d.length();
+    if !o.is_finite() || !t.is_finite() || !len.is_finite() {
+        return Err(format!("non-finite axis origin {o:?} tip {t:?} len {len} zoom {} center {:?}", xf.zoom, xf.center));
+    }
+    let frac = along.clamp(0.0, 1.0);
+    let p = o + d * frac;
+    if !xf.rect.contains(p) {
+        return Err(format!("shaft point {p:?} is outside the canvas {:?} (origin {o:?}, shaft {len:.1}px, zoom {})", xf.rect, xf.zoom));
+    }
+    Ok((p, o, len))
+}
+
+fn alt_drag(h: &mut Harness<'static, PhotocraftApp>, start: Pos2, end: Pos2) {
+    h.hover_at(start);
+    h.run_steps(1);
+    h.event(egui::Event::ModifiersChanged(Modifiers::ALT));
+    h.event(egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::ALT });
+    h.run_steps(1);
+    h.hover_at(end);
+    h.run_steps(2);
+    h.event(egui::Event::PointerButton { pos: end, button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::ALT });
+    h.run_steps(2);
+}
+
+#[test]
+fn alt_drags_on_the_extrusion_axis_rotate_without_duplicating_layers() {
+    let mut h = harness();
+    h.state_mut().run("shape.create", json!({"kind": "rect", "rect": [80, 60, 160, 100], "fill": "#c08040"})).unwrap();
+    let extruded = h.state().session.active().unwrap().active_layer.unwrap();
+    h.state_mut().run("extrude.fromLayer", json!({"depth": 36.0, "pose": {"rotX": -20.0, "rotY": 40.0, "rotZ": 0.0, "scale": 1.0}})).unwrap();
+    h.state_mut().run("shape.create", json!({"kind": "rect", "rect": [20, 220, 70, 40], "fill": "#2266cc"})).unwrap();
+    h.state_mut().ui.tool = crate::state::Tool::Move;
+    h.state_mut().ui.views[0].center = [55.0, 240.0];
+    h.state_mut().ui.views[0].zoom = 2.0;
+    h.state_mut().ui.views[0].fit_pending = false;
+    h.state_mut().ui.views[0].zoom_animating = false;
+    h.run_steps(2);
+    let flat_at = crate::canvas::ViewXform::active(h.state()).unwrap().to_screen(55.0, 240.0);
+    let before_copy = h.state().session.active().unwrap().doc.layers.len();
+    alt_drag(&mut h, flat_at, flat_at + vec2(36.0, 10.0));
+    assert_eq!(
+        h.state().session.active().unwrap().doc.layers.len(),
+        before_copy + 1,
+        "Alt-drag on a flat shape still duplicates; the shaft test is not a disabled Move tool"
+    );
+    h.state_mut().run("layer.select", json!({"layer": extruded.0})).unwrap();
+    // Put the projected origin in the middle of the canvas before measuring the shaft.
+    let origin = {
+        let st = h.state().session.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let ext = st.doc.layer(id).unwrap().extrusion.as_deref().unwrap();
+        photocraft_vector::extrude::project_local(ext, [0.0, 0.0, 0.0]).expect("origin projects")
+    };
+    h.state_mut().ui.views[0].center = [origin[0], origin[1]];
+    h.state_mut().ui.views[0].zoom = 4.0;
+    h.state_mut().ui.views[0].fit_pending = false;
+    h.state_mut().ui.views[0].zoom_animating = false;
+    h.run_steps(2);
+    let (shaft, origin_px, shaft_len) = axis_point(&h, 0.55).unwrap_or_else(|e| panic!("{e}"));
+    let from_centre = (shaft - origin_px).length();
+    assert!(shaft_len > 40.0, "the drawn axis is {shaft_len:.1}px; the fixture is not looking at the shaft");
+    assert!(from_centre > 22.0, "press at {shaft:?} is only {from_centre:.1}px from the origin {origin_px:?}; that is the centre disc, not the shaft");
+    let before = h.state().session.active().unwrap().doc.layers.len();
+    let yaw0 = h.state().session.active().unwrap().doc.layer(h.state().session.active().unwrap().active_layer.unwrap()).unwrap().extrusion.as_ref().unwrap().pose.rot_y;
+    for _ in 0..24 {
+        let (start, _, _) = axis_point(&h, 0.55).unwrap_or_else(|e| panic!("{e}"));
+        alt_drag(&mut h, start, start + vec2(28.0, -6.0));
+    }
+    let layers = h.state().session.active().unwrap().doc.layers.len();
+    assert_eq!(layers, before, "24 Alt-drags on the axis shaft must not duplicate; Move Alt-drag still would");
+    let yaw1 = h.state().session.active().unwrap().doc.layer(h.state().session.active().unwrap().active_layer.unwrap()).unwrap().extrusion.as_ref().unwrap().pose.rot_y;
+    assert!((yaw1 - yaw0).abs() > 1.0, "shaft drags did not rotate the object ({yaw0} -> {yaw1})");
+    assert!(h.state_mut().session.undo());
+    h.run_steps(1);
+    let undone = h.state().session.active().unwrap().doc.layer(h.state().session.active().unwrap().active_layer.unwrap()).unwrap().extrusion.as_ref().unwrap().pose.rot_y;
+    assert!((undone - yaw1).abs() > 0.5, "undo did not restore the pose ({yaw1} -> {undone})");
+}

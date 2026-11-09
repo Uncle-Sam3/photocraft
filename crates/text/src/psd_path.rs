@@ -51,7 +51,7 @@ fn smooth(anchor: Point, a: Point, b: Point) -> bool {
 }
 
 fn knot(in_ctrl: Point, anchor: Point, out_ctrl: Point) -> Knot {
-    Knot { anchor, in_ctrl, out_ctrl, smooth: smooth(anchor, in_ctrl, out_ctrl) }
+    Knot { anchor, in_ctrl, out_ctrl, smooth: smooth(anchor, in_ctrl, out_ctrl) , corner_radius: 0.0, corner_chamfer: false}
 }
 
 /// The type path of a path frame `frame` (the entry's `/0`), in the `TySh` text space, with the
@@ -115,7 +115,7 @@ pub(crate) fn read(frame: &E) -> Result<Subpath, String> {
 
 /// `path` with its knots in the opposite order (the segments run backwards).
 fn reversed(path: &Subpath) -> Subpath {
-    let mut knots: Vec<Knot> = path.knots.iter().rev().map(|k| Knot { anchor: k.anchor, in_ctrl: k.out_ctrl, out_ctrl: k.in_ctrl, smooth: k.smooth }).collect();
+    let mut knots: Vec<Knot> = path.knots.iter().rev().map(|k| Knot { anchor: k.anchor, in_ctrl: k.out_ctrl, out_ctrl: k.in_ctrl, smooth: k.smooth , corner_radius: k.corner_radius, corner_chamfer: k.corner_chamfer}).collect();
     if path.closed {
         // Keep the first knot first: k0, k(n-1), …, k1.
         knots.rotate_right(1);
@@ -190,7 +190,7 @@ fn starting_at(path: &Subpath, s: f64) -> Subpath {
     }
     let next = (i + 1) % n;
     let mut knots = Vec::with_capacity(n + 1);
-    knots.push(Knot { anchor: m, in_ctrl: if path.closed { ab } else { m }, out_ctrl: bc, smooth: path.closed });
+    knots.push(Knot { anchor: m, in_ctrl: if path.closed { ab } else { m }, out_ctrl: bc, smooth: path.closed , corner_radius: 0.0, corner_chamfer: false});
     let count = if path.closed { n } else { n - next };
     for r in 0..count {
         let j = (next + r) % n;

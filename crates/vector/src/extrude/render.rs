@@ -12,6 +12,17 @@ use super::mesh::{Mesh, Tri, Vert};
 
 const MAX_PIXELS: u64 = 2_000_000;
 
+/// How many samples a pixel of the extrusion preview takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Coverage {
+    /// The pixel centre only. Used while the solid is being dragged.
+    Center,
+    /// Four rotated-grid samples, resolved to straight alpha. The picture kept after the drag.
+    Grid4,
+}
+
+const GRID4: [[f32; 2]; 4] = [[0.125, 0.375], [-0.375, 0.125], [0.375, -0.125], [-0.125, -0.375]];
+
 struct Basis {
     eye: [f32; 3],
     target: [f32; 3],
@@ -41,7 +52,7 @@ pub fn project_local(ext: &Extrusion3d, local: [f32; 3]) -> Option<[f32; 2]> {
     Some([p[0], p[1]])
 }
 
-pub fn render_surface(ext: &Extrusion3d, canvas: Rect, format: PixelFormat) -> Result<Surface, String> {
+pub fn render_surface(ext: &Extrusion3d, canvas: Rect, format: PixelFormat, coverage: Coverage) -> Result<Surface, String> {
     if !ext.scalars_ok() {
         return Err("extrusion settings must be finite and inside their limits".into());
     }
@@ -51,7 +62,7 @@ pub fn render_surface(ext: &Extrusion3d, canvas: Rect, format: PixelFormat) -> R
     let posed = pose_mesh(&mesh, &ext.pose, pivot);
     let rect = projected_rect(&posed, &basis, canvas)?;
     let shade = ShadeSet { tex: load_textures(&ext.materials)? };
-    let rgba = rasterize(&posed, &basis, rect, ext, &shade);
+    let rgba = rasterize(&posed, &basis, rect, ext, &shade, coverage);
     write_surface(rect, &rgba, format)
 }
 
@@ -161,47 +172,79 @@ struct Paint<'a> {
     shade: &'a ShadeSet,
 }
 
-fn rasterize(mesh: &Mesh, basis: &Basis, rect: Rect, ext: &Extrusion3d, shade: &ShadeSet) -> Vec<[f32; 4]> {
+fn rasterize(mesh: &Mesh, basis: &Basis, rect: Rect, ext: &Extrusion3d, shade: &ShadeSet, coverage: Coverage) -> Vec<[f32; 4]> {
     let w = rect.width() as usize;
     let h = rect.height() as usize;
-    let mut color = vec![[0.0; 4]; w.saturating_mul(h)];
-    let mut depth = vec![f32::INFINITY; color.len()];
+    let n = w.saturating_mul(h);
     if rect.is_empty() {
-        return color;
+        return Vec::new();
     }
+    let samples = match coverage {
+        Coverage::Center => 1,
+        Coverage::Grid4 => 4,
+    };
+    let mut color = vec![[0.0; 4]; n.saturating_mul(samples)];
+    let mut depth = vec![f32::INFINITY; color.len()];
     let paint = Paint { mesh, basis, rect, ext, shade };
     for tri in &mesh.tris {
-        paint_tri(&paint, tri, &mut color, &mut depth);
+        paint_tri(&paint, tri, &mut color, &mut depth, samples);
     }
-    color
+    if samples == 1 {
+        return color;
+    }
+    let mut out = vec![[0.0; 4]; n];
+    for i in 0..n {
+        let mut pre = [0.0; 4];
+        for s in 0..samples {
+            let px = color.get(i * samples + s).copied().unwrap_or([0.0; 4]);
+            pre[0] += px[0] * px[3];
+            pre[1] += px[1] * px[3];
+            pre[2] += px[2] * px[3];
+            pre[3] += px[3];
+        }
+        let a = pre[3] / samples as f32;
+        if let Some(slot) = out.get_mut(i) {
+            if a < 1.0 / 255.0 {
+                *slot = [0.0; 4];
+            } else {
+                let k = 1.0 / pre[3];
+                *slot = [pre[0] * k, pre[1] * k, pre[2] * k, a];
+            }
+        }
+    }
+    out
 }
 
-fn paint_tri(paint: &Paint<'_>, tri: &Tri, color: &mut [[f32; 4]], depth: &mut [f32]) {
+fn paint_tri(paint: &Paint<'_>, tri: &Tri, color: &mut [[f32; 4]], depth: &mut [f32], samples: usize) {
     let Some(verts) = tri_verts(paint.mesh, tri.i) else { return };
     let Some(proj) = project_tri(verts, paint.basis) else { return };
     let w = paint.rect.width() as i32;
     let (x0, y0, x1, y1) = tri_bounds(&proj, paint.rect);
+    let offsets: &[[f32; 2]] = if samples == 1 { &[[0.0, 0.0]] } else { &GRID4 };
     for y in y0..y1 {
         for x in x0..x1 {
-            let p = [x as f32 + 0.5, y as f32 + 0.5];
-            let Some(bary) = barycentric(p, &proj) else { continue };
-            let Some(sample) = interpolate(&proj, bary) else { continue };
-            let idx = ((y - paint.rect.y0) as usize) * (w as usize) + (x - paint.rect.x0) as usize;
-            let Some(slot) = depth.get_mut(idx) else { continue };
-            if sample.z >= *slot {
-                continue;
-            }
-            let face = ExtrusionFace::ALL.get(tri.face as usize).copied().unwrap_or(ExtrusionFace::Front);
-            let mat = paint.ext.materials.face(face);
-            let view = normalize(sub(paint.basis.eye, sample.world)).unwrap_or([0.0, 0.0, 1.0]);
-            let tex = paint.shade.tex.get(tri.face as usize).and_then(|t| t.as_ref());
-            let rgba = shade_material(mat, tex, sample.uv, sample.n, view, &paint.ext.lights, paint.ext.ambient);
-            if rgba[3] < 1.0 / 255.0 {
-                continue;
-            }
-            *slot = sample.z;
-            if let Some(dst) = color.get_mut(idx) {
-                *dst = rgba;
+            let base = ((y - paint.rect.y0) as usize) * (w as usize) + (x - paint.rect.x0) as usize;
+            for (s, off) in offsets.iter().enumerate() {
+                let p = [x as f32 + 0.5 + off[0], y as f32 + 0.5 + off[1]];
+                let Some(bary) = barycentric(p, &proj) else { continue };
+                let Some(sample) = interpolate(&proj, bary) else { continue };
+                let idx = base.saturating_mul(samples).saturating_add(s);
+                let Some(slot) = depth.get_mut(idx) else { continue };
+                if sample.z >= *slot {
+                    continue;
+                }
+                let face = ExtrusionFace::ALL.get(tri.face as usize).copied().unwrap_or(ExtrusionFace::Front);
+                let mat = paint.ext.materials.face(face);
+                let view = normalize(sub(paint.basis.eye, sample.world)).unwrap_or([0.0, 0.0, 1.0]);
+                let tex = paint.shade.tex.get(tri.face as usize).and_then(|t| t.as_ref());
+                let rgba = shade_material(mat, tex, sample.uv, sample.n, view, &paint.ext.lights, paint.ext.ambient);
+                if rgba[3] < 1.0 / 255.0 {
+                    continue;
+                }
+                *slot = sample.z;
+                if let Some(dst) = color.get_mut(idx) {
+                    *dst = rgba;
+                }
             }
         }
     }

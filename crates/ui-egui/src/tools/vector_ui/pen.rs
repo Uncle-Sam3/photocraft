@@ -287,6 +287,8 @@ pub(crate) fn pen_path(pen: &PenPath) -> Path {
             in_ctrl: pt(k[1]),
             out_ctrl: pt(k[2]),
             smooth: !pen.unlinked.contains(&i) && (k[1] != k[0] || k[2] != k[0]),
+            corner_radius: 0.0,
+            corner_chamfer: false,
         })
         .collect();
     Path::new(vec![photocraft_doc::vector::Subpath { closed: false, knots, op: Default::default() }])

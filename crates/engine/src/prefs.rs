@@ -1271,6 +1271,49 @@ impl MenuCustomization {
     }
 }
 
+/// Personalizar interface: features the user turned off. The menu row and the toolbar
+/// button disappear, and the command is refused from the menu, a shortcut and automation.
+/// Pixels already in the document stay. Saving, Save As, Save a Copy and Exit cannot be turned off.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FeatureGates {
+    /// Command ids that must not run.
+    pub commands: Vec<String>,
+    /// Tool names (`Move`, `Brush`, …) that must not be selected.
+    pub tools: Vec<String>,
+    /// Menu paths (`Filter`, `Filter/Blur`). A command whose menu starts with one of these
+    /// must not run. A single name hides that top menu.
+    pub menus: Vec<String>,
+}
+
+impl FeatureGates {
+    /// Saves and quitting stay available so a document can still be written.
+    pub fn essential(id: &str) -> bool {
+        matches!(id, "file.save" | "file.saveAs" | "file.saveACopy" | "file.exit") || id.starts_with("edit.preferences")
+    }
+
+    pub fn blocks_command(&self, id: &str, menu: &[&str]) -> bool {
+        if Self::essential(id) {
+            return false;
+        }
+        if self.commands.iter().any(|c| c == id) {
+            return true;
+        }
+        self.menus.iter().any(|gate| menu_prefix(menu, gate))
+    }
+
+    pub fn blocks_tool(&self, name: &str) -> bool {
+        self.tools.iter().any(|t| t.eq_ignore_ascii_case(name))
+    }
+
+    pub const NOTE: &'static str = "Esta função está desativada. Personalizar interface, no canto superior direito, volta a ligá-la. O que o documento já contém continua visível.";
+}
+
+fn menu_prefix(menu: &[&str], gate: &str) -> bool {
+    let parts: Vec<&str> = gate.split('/').filter(|s| !s.is_empty()).collect();
+    !parts.is_empty() && menu.len() >= parts.len() && menu.iter().zip(parts.iter()).all(|(a, b)| a == b)
+}
+
 /// Edit › Toolbar: hidden tools and a custom order (tool names as in `ui.set {tool}`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -1350,6 +1393,8 @@ pub struct Preferences {
     pub shortcut_set: String,
     pub menus: MenuCustomization,
     pub toolbar: ToolbarCustomization,
+    /// Personalizar interface: commands, tools and menus that must not run.
+    pub features: FeatureGates,
     /// Edit › Check Spelling: words added to the dictionary ("Add").
     pub user_dictionary: Vec<String>,
     /// Window › Workspace › New Workspace…: saved layouts by name (JSON owned by the shell).

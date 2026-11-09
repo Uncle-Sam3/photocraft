@@ -20,6 +20,16 @@ cargo build -p photocraft --release
 
 O executável fica em `target/release/photocraft`. Esse binário é Linux; não é o programa para Windows 10.
 
+## Borda, rotação e nós
+
+A pré-visualização guardada tem um pixel por pixel do documento. Durante o arrasto do eixo a imagem usa uma amostra no centro do pixel, para o gesto responder; ao soltar, a borda fica com quatro amostras e alfa parcial. Ampliar a vista mostra esses pixels. Isso não é uma segunda malha de baixa resolução.
+
+Alt+arrastar no eixo gira o sólido e não duplica a camada. Sem Alt, o mesmo eixo orbita a câmara. A ferramenta Mover, fora do eixo, continua a duplicar com Alt, como faz com qualquer camada.
+
+A Seleção direta mostra os nós e as alças do contorno na pose atual. Arrastar um nó escreve no plano do vetor de origem. Se o plano estiver de perfil, a barra de estado pede para girar o sólido; nada fica preso.
+
+Um canto vivo do vetor (círculo na Seleção direta, com o nó selecionado) arredonda ou, com Alt, chanfra esse canto. Não é o chanfro 3D. O raio fica no nó, volta no `.pcraft` e a extrusão viva acompanha. Não há canto invertido.
+
 ## Extrusão
 
 Menu **3D**:

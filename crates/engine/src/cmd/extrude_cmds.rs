@@ -58,7 +58,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Set 3D Extrusion",
             menu: &[],
             shortcut: None,
-            params: r##"{"layer":id?,"depth":px?,"frontBevel":{…}?,"backBevel":{…}?,"pose":{"x","y","z","rotX","rotY","rotZ","scale"}?,"camera":{"yaw","pitch","distance","fov","ortho"}?,"ambient":0..1?,"light":{"toward":[x,y,z],"color":[r,g,b],"intensity":0..8}?} — one history step; pass "coalesce" to drag."##,
+            params: r##"{"layer":id?,"depth":px?,"frontBevel":{…}?,"backBevel":{…}?,"pose":{"x","y","z","rotX","rotY","rotZ","scale"}?,"camera":{"yaw","pitch","distance","fov","ortho"}?,"ambient":0..1?,"light":{"toward":[x,y,z],"color":[r,g,b],"intensity":0..8}?,"quality":"preview|final"="final"} — one history step; pass "coalesce" to drag. preview is the one-sample picture used while the pointer moves; final is the four-sample edge."##,
             enabled: |s| has_extrusion(s),
             run: set_extrusion,
             journal: true,
@@ -196,14 +196,21 @@ fn new_shape_extrusion(s: &mut Session, path: Path, origin: ExtrusionOrigin, p: 
 
 fn set_extrusion(s: &mut Session, p: &Value) -> Result<Value> {
     let id = layer_id(s, p)?;
+    let coverage = match p.get("quality").and_then(Value::as_str) {
+        Some("preview") => photocraft_vector::extrude::Coverage::Center,
+        None | Some("final") => photocraft_vector::extrude::Coverage::Grid4,
+        Some(_) => return Err(bad("extrude.set", "`quality` must be preview or final")),
+    };
     s.edit("Set 3D Extrusion", |doc, _| {
-        sync_owned(doc, id)?;
+        // One raster per drag frame. Refreshing the live outline and then painting again
+        // used to build the mesh twice.
+        refresh_outline(doc, id)?;
         let canvas = doc.bounds();
         let fmt = doc.pixel_format();
         let layer = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         let ext = layer.extrusion.as_mut().ok_or_else(|| EngineError::Other("the layer has no 3D extrusion".into()))?;
         apply_object(ext, p)?;
-        ext.cache = Some(render_cache(ext, canvas, fmt)?);
+        ext.cache = Some(render_cache(ext, canvas, fmt, coverage)?);
         Ok(())
     })?;
     info_value(s, id)
@@ -224,7 +231,7 @@ fn set_material(s: &mut Session, p: &Value) -> Result<Value> {
         let layer = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         let ext = layer.extrusion.as_mut().ok_or_else(|| EngineError::Other("the layer has no 3D extrusion".into()))?;
         apply_prepared(ext.materials.face_mut(face), &prepared)?;
-        ext.cache = Some(render_cache(ext, canvas, fmt)?);
+        ext.cache = Some(render_cache(ext, canvas, fmt, photocraft_vector::extrude::Coverage::Grid4)?);
         Ok(())
     })?;
     info_value(s, id)
@@ -261,7 +268,24 @@ fn sync_owned(doc: &mut Document, id: LayerId) -> Result<()> {
     if let Some(path) = replacement {
         ext.path = path;
     }
-    ext.cache = Some(render_cache(ext, canvas, fmt)?);
+    ext.cache = Some(render_cache(ext, canvas, fmt, photocraft_vector::extrude::Coverage::Grid4)?);
+    Ok(())
+}
+
+/// Copy a live shape or type outline onto the extrusion without painting it.
+fn refresh_outline(doc: &mut Document, id: LayerId) -> Result<()> {
+    let live = {
+        let Some(layer) = doc.layer(id) else { return Ok(()) };
+        let Some(ext) = layer.extrusion.as_ref() else { return Ok(()) };
+        ext.live
+    };
+    if !live {
+        return Ok(());
+    }
+    let Some((path, _, _)) = outline(doc, id).ok() else { return Ok(()) };
+    let layer = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+    let Some(ext) = layer.extrusion.as_mut() else { return Ok(()) };
+    ext.path = path;
     Ok(())
 }
 
@@ -302,12 +326,12 @@ fn fill_rgb(fill: Option<&Fill>) -> [f32; 4] {
 }
 
 fn render_into(doc: &Document, ext: &mut Extrusion3d) -> Result<()> {
-    ext.cache = Some(render_cache(ext, doc.bounds(), doc.pixel_format())?);
+    ext.cache = Some(render_cache(ext, doc.bounds(), doc.pixel_format(), photocraft_vector::extrude::Coverage::Grid4)?);
     Ok(())
 }
 
-fn render_cache(ext: &Extrusion3d, canvas: Rect, format: PixelFormat) -> Result<Surface> {
-    photocraft_vector::extrude::render(ext, canvas, format).map_err(EngineError::Other)
+fn render_cache(ext: &Extrusion3d, canvas: Rect, format: PixelFormat, coverage: photocraft_vector::extrude::Coverage) -> Result<Surface> {
+    photocraft_vector::extrude::render_coverage(ext, canvas, format, coverage).map_err(EngineError::Other)
 }
 
 fn apply_object(ext: &mut Extrusion3d, p: &Value) -> Result<()> {

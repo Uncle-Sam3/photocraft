@@ -32,20 +32,34 @@ pub struct Knot {
     /// Smooth (linked) knot: the Pen tool keeps both handles collinear.
     #[serde(default)]
     pub smooth: bool,
+    /// Live corner on a sharp knot, in document pixels. Zero means the knot stays sharp.
+    /// This is the vector corner (round or chamfer), not a 3D extrusion bevel.
+    #[serde(default)]
+    pub corner_radius: f64,
+    /// When `corner_radius` is positive, a straight cut instead of a circular fillet.
+    #[serde(default)]
+    pub corner_chamfer: bool,
 }
 
 impl Knot {
     /// A corner knot with retracted handles.
     pub fn corner(x: f64, y: f64) -> Self {
         let p = Point::new(x, y);
-        Knot { anchor: p, in_ctrl: p, out_ctrl: p, smooth: false }
+        Knot { anchor: p, in_ctrl: p, out_ctrl: p, smooth: false, corner_radius: 0.0, corner_chamfer: false }
     }
     /// A smooth knot with explicit handles.
     pub fn smooth(anchor: Point, in_ctrl: Point, out_ctrl: Point) -> Self {
-        Knot { anchor, in_ctrl, out_ctrl, smooth: true }
+        Knot { anchor, in_ctrl, out_ctrl, smooth: true, corner_radius: 0.0, corner_chamfer: false }
     }
     pub fn transform(&self, a: &Affine) -> Knot {
-        Knot { anchor: a.apply(self.anchor), in_ctrl: a.apply(self.in_ctrl), out_ctrl: a.apply(self.out_ctrl), smooth: self.smooth }
+        Knot {
+            anchor: a.apply(self.anchor),
+            in_ctrl: a.apply(self.in_ctrl),
+            out_ctrl: a.apply(self.out_ctrl),
+            smooth: self.smooth,
+            corner_radius: self.corner_radius,
+            corner_chamfer: self.corner_chamfer,
+        }
     }
 }
 

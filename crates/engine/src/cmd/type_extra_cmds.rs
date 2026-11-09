@@ -273,12 +273,12 @@ fn contours(els: &[PathEl]) -> Vec<Vec<Knot>> {
                 let s = last.anchor;
                 last.out_ctrl = Point::new(s.x + 2.0 / 3.0 * (c[0] - s.x), s.y + 2.0 / 3.0 * (c[1] - s.y));
                 let c2 = Point::new(a[0] + 2.0 / 3.0 * (c[0] - a[0]), a[1] + 2.0 / 3.0 * (c[1] - a[1]));
-                cur.push(Knot { anchor: p(a), in_ctrl: c2, out_ctrl: p(a), smooth: false });
+                cur.push(Knot { anchor: p(a), in_ctrl: c2, out_ctrl: p(a), smooth: false , corner_radius: 0.0, corner_chamfer: false});
             }
             PathEl::CurveTo(c1, c2, a) => {
                 let Some(last) = cur.last_mut() else { continue };
                 last.out_ctrl = p(c1);
-                cur.push(Knot { anchor: p(a), in_ctrl: p(c2), out_ctrl: p(a), smooth: false });
+                cur.push(Knot { anchor: p(a), in_ctrl: p(c2), out_ctrl: p(a), smooth: false , corner_radius: 0.0, corner_chamfer: false});
             }
             PathEl::Close => finish(&mut cur, &mut out),
         }
@@ -401,7 +401,7 @@ fn attach_to_path(s: &mut Session, p: &Value) -> Result<Value> {
         // the type lands on the path where it is drawn.
         let inv = t.transform.inverse().ok_or_else(|| EngineError::Other("the type layer's transform cannot be inverted".into()))?;
         let map = |q: Point| inv.apply(q);
-        let knots = sub.knots.iter().map(|k| Knot { anchor: map(k.anchor), in_ctrl: map(k.in_ctrl), out_ctrl: map(k.out_ctrl), smooth: k.smooth }).collect();
+        let knots = sub.knots.iter().map(|k| Knot { anchor: map(k.anchor), in_ctrl: map(k.in_ctrl), out_ctrl: map(k.out_ctrl), smooth: k.smooth , corner_radius: k.corner_radius, corner_chamfer: k.corner_chamfer}).collect();
         let path = Subpath { closed: sub.closed, knots, op: PathOp::Combine };
         if !path.knots.iter().all(|k| [k.anchor, k.in_ctrl, k.out_ctrl].iter().all(|q| q.x.is_finite() && q.y.is_finite())) {
             return Err(EngineError::Other("the path cannot be mapped into the type layer".into()));
@@ -424,7 +424,7 @@ fn attach_to_path(s: &mut Session, p: &Value) -> Result<Value> {
 pub fn type_path(t: &TextLayer) -> Option<Path> {
     let TextShape::Path { path, .. } = &t.shape else { return None };
     let map = |q: Point| t.transform.apply(q);
-    let knots = path.knots.iter().map(|k| Knot { anchor: map(k.anchor), in_ctrl: map(k.in_ctrl), out_ctrl: map(k.out_ctrl), smooth: k.smooth }).collect();
+    let knots = path.knots.iter().map(|k| Knot { anchor: map(k.anchor), in_ctrl: map(k.in_ctrl), out_ctrl: map(k.out_ctrl), smooth: k.smooth , corner_radius: k.corner_radius, corner_chamfer: k.corner_chamfer}).collect();
     Some(Path::new(vec![Subpath { closed: path.closed, knots, op: path.op }]))
 }
 
@@ -443,7 +443,7 @@ pub(crate) fn set_type_path(t: &mut TextLayer, edited: &Path) -> Result<()> {
     let inv = t.transform.inverse().ok_or_else(|| EngineError::Other("the type layer's transform cannot be inverted".into()))?;
     let map = |q: Point| inv.apply(q);
     let knots: Vec<Knot> =
-        sub.knots.iter().map(|k| Knot { anchor: map(k.anchor), in_ctrl: map(k.in_ctrl), out_ctrl: map(k.out_ctrl), smooth: k.smooth }).collect();
+        sub.knots.iter().map(|k| Knot { anchor: map(k.anchor), in_ctrl: map(k.in_ctrl), out_ctrl: map(k.out_ctrl), smooth: k.smooth , corner_radius: k.corner_radius, corner_chamfer: k.corner_chamfer}).collect();
     if !knots.iter().all(|k| [k.anchor, k.in_ctrl, k.out_ctrl].iter().all(|q| q.x.is_finite() && q.y.is_finite())) {
         return Err(EngineError::Other("the path cannot be mapped into the type layer".into()));
     }

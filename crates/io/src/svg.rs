@@ -1800,7 +1800,7 @@ fn knots(path: &tiny_skia::Path) -> Vec<Subpath> {
         if let Some(last) = sp.knots.last_mut() {
             last.out_ctrl = c1;
         }
-        sp.knots.push(Knot { anchor: p, in_ctrl: c2, out_ctrl: p, smooth: false });
+        sp.knots.push(Knot { anchor: p, in_ctrl: c2, out_ctrl: p, smooth: false , corner_radius: 0.0, corner_chamfer: false});
     }
     for seg in path.segments() {
         match seg {

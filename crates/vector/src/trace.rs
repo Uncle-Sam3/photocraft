@@ -314,7 +314,7 @@ fn fit_closed(lp: &[P], tol: f64, window: f64) -> Subpath {
     let mut knots: Vec<Knot> = Vec::with_capacity(segs.len());
     let pt = |p: P| Point::new(p.0, p.1);
     for (i, s) in segs.iter().enumerate() {
-        knots.push(Knot { anchor: pt(s[0]), in_ctrl: pt(s[0]), out_ctrl: pt(s[1]), smooth: !corner_at_start[i] });
+        knots.push(Knot { anchor: pt(s[0]), in_ctrl: pt(s[0]), out_ctrl: pt(s[1]), smooth: !corner_at_start[i] , corner_radius: 0.0, corner_chamfer: false});
     }
     let m = segs.len();
     for i in 0..m {
@@ -399,10 +399,10 @@ fn fit_open(lp: &[P], tol: f64, window: f64) -> Subpath {
     let mut knots: Vec<Knot> = Vec::with_capacity(segs.len() + 1);
     for (i, s) in segs.iter().enumerate() {
         let in_ctrl = if i == 0 { s[0] } else { segs[i - 1][2] };
-        knots.push(Knot { anchor: pt(s[0]), in_ctrl: pt(in_ctrl), out_ctrl: pt(s[1]), smooth: i > 0 && !corner_at_start[i] });
+        knots.push(Knot { anchor: pt(s[0]), in_ctrl: pt(in_ctrl), out_ctrl: pt(s[1]), smooth: i > 0 && !corner_at_start[i] , corner_radius: 0.0, corner_chamfer: false});
     }
     if let Some(s) = segs.last() {
-        knots.push(Knot { anchor: pt(s[3]), in_ctrl: pt(s[2]), out_ctrl: pt(s[3]), smooth: false });
+        knots.push(Knot { anchor: pt(s[3]), in_ctrl: pt(s[2]), out_ctrl: pt(s[3]), smooth: false , corner_radius: 0.0, corner_chamfer: false});
     }
     Subpath { closed: false, knots, op: PathOp::Combine }
 }
